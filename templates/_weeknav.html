@@ -1,0 +1,6 @@
+<nav class="weeknav">
+  {% for w in weeks %}
+    <a href="{{ url_for(request.endpoint, week=w) }}" class="{{ 'on' if w == week }}">{{ w }}</a>
+  {% endfor %}
+</nav>
+<script>document.querySelector(".weeknav .on")?.scrollIntoView({inline: "center", block: "nearest"});</script>

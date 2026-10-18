@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}NFL Pick'em{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('home') }}"><span class="ball">🏈</span> PICK'EM <small>{{ season }}</small></a>
+    {% if me %}
+    <nav>
+      <a href="{{ url_for('home') }}">My Picks</a>
+      <a href="{{ url_for('leaderboard') }}">Standings</a>
+      {% if me.is_admin %}<a href="{{ url_for('admin') }}">League</a>{% endif %}
+      <a class="muted" href="{{ url_for('logout') }}">Sign out {{ me.name }}</a>
+    </nav>
+    {% endif %}
+  </header>
+
+  <main>
+    {% with messages = get_flashed_messages() %}
+      {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+    // Show kickoff times in each viewer's own time zone.
+    document.querySelectorAll("[data-utc]").forEach(el => {
+      const d = new Date(el.dataset.utc);
+      if (!isNaN(d)) el.textContent = d.toLocaleString([], {
+        weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"
+      });
+    });
+  </script>
+</body>
+</html>

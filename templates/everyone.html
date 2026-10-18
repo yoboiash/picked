@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Week {{ week }} picks · NFL Pick'em{% endblock %}
+{% block content %}
+{% include "_weeknav.html" %}
+
+<div class="page-head">
+  <div>
+    <h1>Week {{ week }} — Everyone</h1>
+    <p class="sub">Picks stay hidden until each game kicks off. No copying.</p>
+  </div>
+  <a class="btn ghost" href="{{ url_for('picks', week=week) }}">← My picks</a>
+</div>
+
+<div class="grid-wrap">
+<table class="grid">
+  <thead>
+    <tr>
+      <th class="sticky">Player</th>
+      {% for gm in games %}
+        <th title="{{ gm.away_name }} at {{ gm.home_name }}">
+          {{ gm.away }}<br><small>@</small><br>{{ gm.home }}
+          {% if gm.winner %}<div class="w">{{ gm.winner }}</div>{% endif %}
+        </th>
+      {% endfor %}
+      <th>✔</th>
+      <th title="Monday night total points guess">TB{% if mnf_total is not none %}<div class="w">{{ mnf_total }}</div>{% endif %}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for pl in players %}
+    <tr class="{{ 'me' if pl.id == me_id }}">
+      <td class="sticky">{{ pl.name }}{% if pl.id in winners %} 🏆{% endif %}</td>
+      {% for gm in games %}
+        {% set t = grid.get((pl.id, gm.id)) %}
+        {% if not locked[gm.id] and pl.id != me_id %}
+          <td class="hidden">{{ '•' if t else '' }}</td>
+        {% elif not t %}
+          <td class="none">–</td>
+        {% else %}
+          <td class="{{ ('right' if t == gm.winner else 'wrong') if gm.winner and gm.winner != 'TIE' }}">{{ t }}</td>
+        {% endif %}
+      {% endfor %}
+      <td class="total">{{ totals[pl.id] }}</td>
+      {% set gs = guesses.get(pl.id) %}
+      {% if gs is none %}<td class="none">–</td>
+      {% elif not mnf_locked and pl.id != me_id %}<td class="hidden">•</td>
+      {% else %}<td>{{ gs }}</td>{% endif %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="legend"><span class="dot right"></span> correct <span class="dot wrong"></span> wrong <span class="dot hidden"></span> • = picked, hidden until kickoff</p>
+{% endblock %}

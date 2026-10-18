@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="auth">
+  <h1>Pick the winners.<br><span>Talk the trash.</span></h1>
+  <p class="sub">Pick every NFL game each week. Picks lock at kickoff. Most correct picks wins the season.</p>
+
+  <div class="auth-cards">
+    <form method="post" class="card">
+      <h2>Sign in</h2>
+      <input type="hidden" name="mode" value="login">
+      <label>Name <input name="name" autocomplete="username" required></label>
+      <label>PIN <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" required></label>
+      <button class="btn">Sign in</button>
+    </form>
+
+    <form method="post" class="card">
+      <h2>New player</h2>
+      <input type="hidden" name="mode" value="join">
+      <label>Pick a name <input name="name" maxlength="24" required></label>
+      <label>Make a 4–8 digit PIN <input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" required></label>
+      <button class="btn alt">Join the league</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

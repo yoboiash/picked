@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Week {{ week }} · NFL Pick'em{% endblock %}
+{% block content %}
+{% include "_weeknav.html" %}
+
+<div class="page-head">
+  <div>
+    <h1>Week {{ week }}</h1>
+    <p class="sub">
+      {{ picked }} of {{ games|length }} picked
+      {% if record[0] or record[1] %} · You're <b>{{ record[0] }}–{{ record[1] }}</b> this week{% endif %}
+    </p>
+  </div>
+  <a class="btn ghost" href="{{ url_for('everyone', week=week) }}">See everyone's picks →</a>
+</div>
+
+{% if not online %}<div class="flash warn">Couldn't reach the scores feed just now — showing the last saved data.</div>{% endif %}
+{% if not games %}<p class="empty">No games loaded for this week yet.</p>{% endif %}
+
+<form method="post">
+  <div class="games">
+  {% for gm in games %}
+    {% set pick = mine.get(gm.id) %}
+    {% set lock = locked[gm.id] %}
+    <div class="game {{ 'locked' if lock }} {{ 'final' if gm.state == 'post' }}">
+      <div class="game-meta">
+        {% if gm.state == 'pre' %}<span data-utc="{{ gm.kickoff }}">{{ gm.kickoff }}</span>
+        {% elif gm.state == 'in' %}<span class="live">● LIVE</span> {{ gm.detail }}
+        {% else %}{{ gm.detail or 'Final' }}{% endif %}
+        {% if lock %}<span class="lock">🔒</span>{% endif %}
+      </div>
+      {% for side in ['away', 'home'] %}
+        {% set abbr = gm[side] %}
+        {% set result = '' %}
+        {% if gm.winner and pick == abbr %}{% set result = 'right' if gm.winner == abbr else 'wrong' %}{% endif %}
+        <label class="team {{ 'picked' if pick == abbr }} {{ result }}">
+          <input type="radio" name="pick_{{ gm.id }}" value="{{ abbr }}"
+                 {{ 'checked' if pick == abbr }} {{ 'disabled' if lock }}>
+          {% if gm[side ~ '_logo'] %}<img src="{{ gm[side ~ '_logo'] }}" alt="">{% endif %}
+          <span class="tname"><b>{{ abbr }}</b> <small>{{ gm[side ~ '_name'] }}</small></span>
+          {% if gm[side ~ '_score'] is not none %}<span class="score">{{ gm[side ~ '_score'] }}</span>{% endif %}
+          {% if side == 'home' %}<span class="at">home</span>{% endif %}
+        </label>
+      {% endfor %}
+    </div>
+  {% endfor %}
+  </div>
+
+  {% if mnf %}
+  {% set mnf_lock = locked[mnf.id] %}
+  <div class="tiebreak {{ 'locked' if mnf_lock }}">
+    <div>
+      <h2>Monday Night Tiebreaker</h2>
+      <p class="sub">Guess the total points in <b>{{ mnf.away }} @ {{ mnf.home }}</b>.
+        If you tie for the most correct picks this week, closest guess wins.</p>
+    </div>
+    <label class="tb-input">
+      <input type="number" name="tiebreak" min="0" max="200" inputmode="numeric"
+             value="{{ my_guess if my_guess is not none else '' }}" placeholder="—"
+             {{ 'disabled' if mnf_lock }}>
+      <span>pts {% if mnf_lock %}🔒{% endif %}</span>
+    </label>
+    {% if mnf.state != 'pre' %}
+      <p class="tb-actual">Actual: <b>{{ (mnf.home_score or 0) + (mnf.away_score or 0) }}</b>{% if mnf.state == 'in' %} so far{% endif %}</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if games %}<div class="savebar"><button class="btn big">Save my picks</button></div>{% endif %}
+</form>
+<script>
+  // Highlight a team the moment you tap it.
+  document.querySelectorAll(".team input").forEach(r => r.addEventListener("change", () => {
+    r.closest(".game").querySelectorAll(".team").forEach(t => t.classList.remove("picked"));
+    r.closest(".team").classList.add("picked");
+  }));
+</script>
+{% endblock %}

@@ -1,0 +1,160 @@
+/* NFL Pick'em — stadium-at-night theme */
+:root {
+  --bg: #0c1220;
+  --panel: #151d30;
+  --panel-2: #1c2640;
+  --line: #2a3554;
+  --text: #e8ecf5;
+  --muted: #8d98b3;
+  --turf: #2fbf71;
+  --turf-dim: rgba(47, 191, 113, .14);
+  --red: #ff5a5f;
+  --red-dim: rgba(255, 90, 95, .14);
+  --gold: #ffc53d;
+  --accent: #4d8dff;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: radial-gradient(1200px 600px at 50% -200px, #1b2a4d 0%, var(--bg) 60%) fixed, var(--bg);
+  color: var(--text);
+  font: 15px/1.5 Inter, system-ui, -apple-system, sans-serif;
+}
+a { color: inherit; }
+h1, h2, .brand, .weeknav, .score, th { font-family: Oswald, Impact, sans-serif; letter-spacing: .02em; }
+h1 { font-size: 2rem; margin: 0; text-transform: uppercase; }
+h2 { font-size: 1.15rem; margin: 0 0 .75rem; text-transform: uppercase; }
+.sub { color: var(--muted); margin: .25rem 0 0; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px 16px 120px; }
+
+/* top bar */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  padding: 12px 20px; border-bottom: 1px solid var(--line);
+  background: rgba(12, 18, 32, .85); backdrop-filter: blur(8px);
+  position: sticky; top: 0; z-index: 10;
+}
+.brand { font-size: 1.4rem; font-weight: 700; text-decoration: none; }
+.brand small { color: var(--gold); font-size: .85rem; margin-left: 4px; }
+.topbar nav { display: flex; gap: 18px; flex-wrap: wrap; }
+.topbar nav a { text-decoration: none; font-weight: 600; }
+.topbar nav a:hover { color: var(--gold); }
+.muted { color: var(--muted); }
+
+/* flash messages */
+.flash { background: var(--panel-2); border-left: 4px solid var(--turf); padding: 10px 14px; border-radius: 8px; margin: 12px 0; }
+.flash.warn { border-color: var(--gold); }
+
+/* buttons */
+.btn {
+  background: var(--turf); color: #04150b; border: 0; border-radius: 10px;
+  padding: 10px 18px; font: 700 15px Inter, sans-serif; cursor: pointer; text-decoration: none; display: inline-block;
+}
+.btn:hover { filter: brightness(1.1); }
+.btn.alt { background: var(--gold); }
+.btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+.btn.big { padding: 14px 32px; font-size: 17px; box-shadow: 0 8px 30px rgba(47, 191, 113, .35); }
+.btn.small { padding: 5px 10px; font-size: 13px; }
+button.link { background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; padding: 0; }
+button.link.danger { color: var(--red); }
+
+/* login */
+.auth { text-align: center; padding-top: 40px; }
+.auth h1 { font-size: clamp(2.2rem, 6vw, 3.6rem); line-height: 1.05; }
+.auth h1 span { color: var(--gold); }
+.auth-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; max-width: 640px; margin: 32px auto 0; text-align: left; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+.card.wide { margin-bottom: 16px; }
+.card label { display: block; color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+.card input, td input {
+  display: block; width: 100%; margin-top: 4px; padding: 10px 12px; font: inherit;
+  background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+}
+td input { display: inline-block; width: 100px; padding: 5px 8px; margin: 0 4px 0 0; }
+.card .btn { width: 100%; margin-top: 4px; }
+form.inline { display: inline-flex; align-items: center; margin: 0; }
+
+/* week navigation */
+.weeknav { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 12px; scrollbar-width: thin; }
+.weeknav a {
+  flex: 0 0 auto; min-width: 38px; text-align: center; padding: 6px 0; border-radius: 8px;
+  text-decoration: none; background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+}
+.weeknav a.on { background: var(--gold); color: #1a1300; border-color: var(--gold); font-weight: 700; }
+
+.page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin: 8px 0 18px; }
+.empty { color: var(--muted); text-align: center; padding: 40px; }
+
+/* game cards */
+.games { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 12px; }
+.game { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 10px; }
+.game-meta { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; padding: 0 6px 8px; text-transform: uppercase; letter-spacing: .04em; }
+.live { color: var(--red); font-weight: 700; }
+.team {
+  display: flex; align-items: center; gap: 10px; padding: 9px 10px; margin-top: 6px;
+  border-radius: 10px; border: 2px solid transparent; background: var(--panel-2); cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+.team input { display: none; }
+.team img { width: 34px; height: 34px; object-fit: contain; }
+.tname { flex: 1; display: flex; flex-direction: column; line-height: 1.2; }
+.tname small { color: var(--muted); font-size: 12px; }
+.score { font-size: 1.5rem; font-weight: 700; }
+.at { font-size: 10px; color: var(--muted); text-transform: uppercase; border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; }
+.game:not(.locked) .team:hover { border-color: var(--line); }
+.team.picked { border-color: var(--accent); background: rgba(77, 141, 255, .14); }
+.team.picked.right { border-color: var(--turf); background: var(--turf-dim); }
+.team.picked.wrong { border-color: var(--red); background: var(--red-dim); }
+.game.locked .team { cursor: default; }
+.game.locked .team:not(.picked) { opacity: .6; }
+
+/* Monday night tiebreaker */
+.tiebreak {
+  margin-top: 16px; padding: 16px 18px; border-radius: 14px;
+  background: linear-gradient(135deg, rgba(255, 197, 61, .12), var(--panel) 60%);
+  border: 1px solid rgba(255, 197, 61, .35);
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+}
+.tiebreak h2 { color: var(--gold); margin-bottom: 2px; }
+.tiebreak .sub { margin: 0; max-width: 560px; }
+.tb-input { display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 600; }
+.tb-input input {
+  width: 96px; padding: 10px; font: 700 1.5rem Oswald, sans-serif; text-align: center;
+  background: var(--bg); color: var(--text); border: 2px solid var(--line); border-radius: 10px;
+}
+.tb-input input:focus { outline: none; border-color: var(--gold); }
+.tiebreak.locked .tb-input input { opacity: .7; }
+.tb-actual { margin: 0; color: var(--muted); width: 100%; }
+.tb-actual b { color: var(--text); }
+
+.savebar { position: fixed; left: 0; right: 0; bottom: 0; padding: 16px; text-align: center;
+  background: linear-gradient(transparent, var(--bg) 40%); pointer-events: none; }
+.savebar .btn { pointer-events: auto; }
+
+/* tables */
+.grid-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+table.grid { border-collapse: collapse; width: 100%; font-size: 14px; }
+.grid th, .grid td { padding: 8px 10px; text-align: center; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.grid th { font-weight: 500; color: var(--muted); font-size: 13px; vertical-align: bottom; }
+.grid th a { text-decoration: none; }
+.grid th .w { color: var(--turf); margin-top: 2px; }
+.grid .sticky { position: sticky; left: 0; background: var(--panel); text-align: left; font-weight: 600; }
+.grid tr.me td { background: rgba(255, 197, 61, .07); }
+.grid tr.me .sticky { background: #2a2a2c; }
+.grid td.right { background: var(--turf-dim); color: var(--turf); font-weight: 700; }
+.grid td.wrong { background: var(--red-dim); color: var(--red); }
+.grid td.hidden, .grid td.none { color: var(--muted); }
+.grid td.total { font-weight: 700; color: var(--gold); }
+.grid.admin td { text-align: left; }
+.standings .rank { color: var(--muted); }
+.standings tr.leader .name::after { content: " 👑"; }
+.legend { color: var(--muted); font-size: 13px; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin: 0 4px 0 12px; vertical-align: middle; }
+.dot.right { background: var(--turf); } .dot.wrong { background: var(--red); } .dot.hidden { background: var(--line); }
+
+@media (max-width: 600px) {
+  h1 { font-size: 1.6rem; }
+  .topbar { padding: 10px 16px; }
+  .topbar nav { gap: 12px; font-size: 14px; }
+  .games { grid-template-columns: 1fr; }
+}

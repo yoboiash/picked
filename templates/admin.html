@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}League · NFL Pick'em{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>League Settings</h1>
+    <p class="sub">Only commissioners can see this page.</p>
+  </div>
+</div>
+
+<div class="card wide">
+  <h2>Schedule &amp; scores</h2>
+  <p>{{ game_count }} games loaded for the {{ season }} season. Scores refresh on their own every few minutes
+     (every minute while games are live) whenever someone opens the app.</p>
+  <form method="post"><input type="hidden" name="action" value="refresh">
+    <button class="btn">Refresh everything now</button></form>
+</div>
+
+<div class="card wide">
+  <h2>Players ({{ players|length }})</h2>
+  <table class="grid admin">
+    <thead><tr><th>Name</th><th>Role</th><th>Reset PIN</th><th></th></tr></thead>
+    <tbody>
+    {% for p in players %}
+      <tr>
+        <td>{{ p.name }}</td>
+        <td>
+          {% if p.id == me.id %}Commissioner (you)
+          {% else %}
+          <form method="post" class="inline">
+            <input type="hidden" name="action" value="toggle_admin"><input type="hidden" name="player_id" value="{{ p.id }}">
+            <button class="link">{{ 'Commissioner — demote' if p.is_admin else 'Player — make commissioner' }}</button>
+          </form>
+          {% endif %}
+        </td>
+        <td>
+          <form method="post" class="inline">
+            <input type="hidden" name="action" value="reset_pin"><input type="hidden" name="player_id" value="{{ p.id }}">
+            <input name="pin" placeholder="new PIN" inputmode="numeric" size="8">
+            <button class="btn small">Set</button>
+          </form>
+        </td>
+        <td>
+          {% if p.id != me.id %}
+          <form method="post" class="inline" onsubmit="return confirm('Remove {{ p.name }} and all their picks?')">
+            <input type="hidden" name="action" value="remove"><input type="hidden" name="player_id" value="{{ p.id }}">
+            <button class="link danger">Remove</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
