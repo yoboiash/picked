@@ -3,11 +3,16 @@ NFL Pick'em — a small Flask web app for picking NFL winners with friends.
 
 Run it with ./start.command (Mac) or:  python3 app.py
 Then open http://localhost:8000
+
+On a host like Render, set DATABASE_URL to a Postgres database (e.g. Neon)
+and SECRET_KEY to a long random string. Without DATABASE_URL it uses a local
+SQLite file, so it still runs on your Mac with no setup.
 """
 import os
+import re
 import secrets
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from flask import (Flask, abort, flash, g, redirect, render_template, request,
                    session, url_for)
@@ -24,11 +29,15 @@ PORT = int(os.environ.get("PICKEM_PORT", 8000))
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("PICKEM_DB", os.path.join(HERE, "pickem.db"))
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+USE_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
 FETCH = espn.fetch_week            # swapped out in tests
 
 
 def load_secret_key():
-    """Keep a random secret in a file so logins survive restarts."""
+    """Use SECRET_KEY if set (hosting); otherwise keep one in a local file."""
+    if os.environ.get("SECRET_KEY"):
+        return os.environ["SECRET_KEY"]
     path = os.path.join(HERE, ".secret_key")
     if not os.path.exists(path):
         with open(path, "w") as f:
@@ -39,16 +48,21 @@ def load_secret_key():
 
 app = Flask(__name__)
 app.secret_key = load_secret_key()
+app.permanent_session_lifetime = timedelta(days=120)   # stay signed in all season
+if os.environ.get("RENDER") or USE_POSTGRES:
+    app.config["SESSION_COOKIE_SECURE"] = True        # hosted over https
 
 
 # ---------------------------------------------------------------- database
-SCHEMA = """
+PLAYERS_ID = "SERIAL PRIMARY KEY" if USE_POSTGRES else "INTEGER PRIMARY KEY"
+SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS players (
-    id        INTEGER PRIMARY KEY,
-    name      TEXT UNIQUE NOT NULL COLLATE NOCASE,
+    id        {PLAYERS_ID},
+    name      TEXT NOT NULL,
     pin_hash  TEXT NOT NULL,
     is_admin  INTEGER NOT NULL DEFAULT 0
 );
+CREATE UNIQUE INDEX IF NOT EXISTS players_name ON players (lower(name));
 CREATE TABLE IF NOT EXISTS games (
     id TEXT PRIMARY KEY, season INTEGER, week INTEGER, kickoff TEXT,
     home TEXT, away TEXT, home_name TEXT, away_name TEXT,
@@ -74,10 +88,33 @@ CREATE TABLE IF NOT EXISTS tiebreakers (
 """
 
 
+class DB:
+    """Tiny wrapper so the same SQL (with ? placeholders) runs on SQLite or Postgres."""
+
+    def __init__(self):
+        if USE_POSTGRES:
+            import psycopg
+            from psycopg.rows import dict_row
+            self.conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        else:
+            self.conn = sqlite3.connect(DB_PATH)
+            self.conn.row_factory = sqlite3.Row
+
+    def execute(self, sql, params=()):
+        if USE_POSTGRES:
+            sql = re.sub(r"\?", "%s", sql)
+        return self.conn.execute(sql, params)
+
+    def commit(self):
+        self.conn.commit()
+
+    def close(self):
+        self.conn.close()
+
+
 def db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
+        g.db = DB()
     return g.db
 
 
@@ -89,8 +126,12 @@ def close_db(_exc):
 
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.executescript(SCHEMA)
+    conn = DB()
+    for statement in SCHEMA.split(";"):
+        lines = [ln for ln in statement.splitlines() if not ln.strip().startswith("--")]
+        if "".join(lines).strip():
+            conn.execute("\n".join(lines))
+    conn.commit()
     conn.close()
 
 
@@ -100,7 +141,9 @@ def get_setting(key, default=None):
 
 
 def set_setting(key, value):
-    db().execute("INSERT OR REPLACE INTO settings VALUES (?, ?)", (key, str(value)))
+    db().execute("""INSERT INTO settings (key, value) VALUES (?, ?)
+                    ON CONFLICT (key) DO UPDATE SET value = excluded.value""",
+                 (key, str(value)))
     db().commit()
 
 
@@ -158,16 +201,17 @@ def sync_week(week, force=False):
     except Exception as e:  # no internet, feed down, etc.
         app.logger.warning("Could not fetch week %s: %s", week, e)
         return False
+    cols = ["id", "season", "week", "kickoff", "home", "away", "home_name",
+            "away_name", "home_logo", "away_logo", "home_score", "away_score",
+            "state", "detail", "winner"]
     for gm in games:
-        db().execute("""
-            INSERT INTO games VALUES (:id,:season,:week,:kickoff,:home,:away,
-                :home_name,:away_name,:home_logo,:away_logo,:home_score,
-                :away_score,:state,:detail,:winner)
+        db().execute(f"""
+            INSERT INTO games ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})
             ON CONFLICT(id) DO UPDATE SET
                 kickoff=excluded.kickoff, home_score=excluded.home_score,
                 away_score=excluded.away_score, state=excluded.state,
                 detail=excluded.detail, winner=excluded.winner,
-                week=excluded.week""", gm)
+                week=excluded.week""", [gm[c] for c in cols])
     db().commit()
     set_setting(key, now_utc().timestamp())
     return True
@@ -261,7 +305,7 @@ def week_winners(week):
         return set()
     wins = {}
     for r in db().execute("""
-            SELECT p.player_id, SUM(p.team = g.winner) w
+            SELECT p.player_id, SUM(CASE WHEN p.team = g.winner THEN 1 ELSE 0 END) w
             FROM picks p JOIN games g ON g.id = p.game_id
             WHERE g.season=? AND g.week=? GROUP BY p.player_id""", (SEASON, week)):
         wins[r["player_id"]] = r["w"] or 0
@@ -284,7 +328,8 @@ def week_winners(week):
 
 def week_complete(week):
     row = db().execute(
-        "SELECT COUNT(*) total, SUM(state='post') done FROM games WHERE season=? AND week=?",
+        """SELECT COUNT(*) total, SUM(CASE WHEN state='post' THEN 1 ELSE 0 END) done
+           FROM games WHERE season=? AND week=?""",
         (SEASON, week)).fetchone()
     return row["total"] > 0 and row["total"] == row["done"]
 
@@ -306,7 +351,9 @@ def login():
         if not name or not pin:
             flash("Enter a name and a PIN.")
             return redirect(url_for("login"))
-        player = db().execute("SELECT * FROM players WHERE name=?", (name,)).fetchone()
+        player = db().execute("SELECT * FROM players WHERE lower(name)=lower(?)",
+                              (name,)).fetchone()
+        session.permanent = True
 
         if mode == "join":
             if player:
@@ -316,11 +363,12 @@ def login():
                 flash("PIN must be 4–8 digits.")
                 return redirect(url_for("login"))
             first = db().execute("SELECT COUNT(*) c FROM players").fetchone()["c"] == 0
-            cur = db().execute(
+            db().execute(
                 "INSERT INTO players (name, pin_hash, is_admin) VALUES (?,?,?)",
                 (name, generate_password_hash(pin), int(first)))
             db().commit()
-            session["player_id"] = cur.lastrowid
+            session["player_id"] = db().execute(
+                "SELECT id FROM players WHERE lower(name)=lower(?)", (name,)).fetchone()["id"]
             if first:
                 flash("Welcome, Commissioner! You're the first player, so you run the league.")
             return redirect(url_for("home"))
@@ -355,7 +403,8 @@ def picks(week):
             if is_locked(game):
                 blocked += 1
                 continue
-            db().execute("INSERT OR REPLACE INTO picks VALUES (?,?,?)",
+            db().execute("""INSERT INTO picks (player_id, game_id, team) VALUES (?,?,?)
+                            ON CONFLICT (player_id, game_id) DO UPDATE SET team = excluded.team""",
                          (me["id"], game["id"], choice))
             saved += 1
         msg = f"Saved {saved} pick{'s' if saved != 1 else ''}."
@@ -368,7 +417,9 @@ def picks(week):
             if is_locked(mnf):
                 msg += " Monday night has kicked off, so the tiebreaker is locked."
             elif guess.isdigit() and 0 <= int(guess) <= 200:
-                db().execute("INSERT OR REPLACE INTO tiebreakers VALUES (?,?,?,?)",
+                db().execute("""INSERT INTO tiebreakers (player_id, season, week, guess)
+                                VALUES (?,?,?,?) ON CONFLICT (player_id, season, week)
+                                DO UPDATE SET guess = excluded.guess""",
                              (me["id"], SEASON, week, int(guess)))
                 msg += f" Tiebreaker: {int(guess)} total points."
             else:
@@ -401,7 +452,7 @@ def everyone(week):
         abort(404)
     sync_week(week)
     games = week_games(week)
-    players = db().execute("SELECT id, name FROM players ORDER BY name COLLATE NOCASE").fetchall()
+    players = db().execute("SELECT id, name FROM players ORDER BY lower(name)").fetchall()
     grid = {}
     for r in db().execute("""SELECT p.player_id, p.game_id, p.team FROM picks p
                              JOIN games g ON g.id=p.game_id
@@ -469,7 +520,7 @@ def admin():
                 db().execute("UPDATE players SET is_admin = 1 - is_admin WHERE id=?", (pid,))
                 db().commit()
         return redirect(url_for("admin"))
-    players = db().execute("SELECT * FROM players ORDER BY name COLLATE NOCASE").fetchall()
+    players = db().execute("SELECT * FROM players ORDER BY lower(name)").fetchall()
     games = db().execute("SELECT COUNT(*) c FROM games WHERE season=?", (SEASON,)).fetchone()["c"]
     return render_template("admin.html", players=players, game_count=games)
 

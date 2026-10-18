@@ -33,7 +33,7 @@ python app.py
 
 **Same Wi-Fi:** when the app starts, Terminal prints an address like `http://192.168.1.23:8000`. Send that to friends. If macOS asks whether Python can accept incoming connections, click **Allow**.
 
-**Friends elsewhere:** your Mac has to be on and running the app. The easiest free option is a tunnel such as Cloudflare Tunnel (`brew install cloudflared`, then `cloudflared tunnel --url http://localhost:8000`) — it gives you a public link to share. When you want it always-on, the same code can be deployed to a host like Render or Railway.
+**Friends anywhere, without your Mac:** put it online for free with GitHub + Neon + Render. Step-by-step instructions are in **HOSTING.md**.
 
 ## How scoring works
 
@@ -50,7 +50,10 @@ python app.py
 | `espn.py` | Downloads the schedule and scores |
 | `templates/` | HTML for each page |
 | `static/style.css` | The look |
-| `pickem.db` | Your league's data (created on first run — back this up!) |
+| `pickem.db` | Your league's data when running on your Mac (created on first run) |
+| `HOSTING.md` | How to put the app online for free |
+
+Online, the app stores data in Postgres instead (set `DATABASE_URL`). Locally it uses `pickem.db`.
 
 ## Settings
 
@@ -58,6 +61,8 @@ Set these as environment variables before starting if you need to change them:
 
 - `PICKEM_SEASON` — season year (default `2026`)
 - `PICKEM_PORT` — port number (default `8000`; avoid 5000, which macOS uses for AirPlay)
+- `DATABASE_URL` — a Postgres connection string (used when hosted)
+- `SECRET_KEY` — keeps people signed in across restarts (used when hosted)
 
 ## Ideas to add next
 
