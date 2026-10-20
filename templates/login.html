@@ -1,8 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="auth">
-  <h1>Pick the winners.<br><span>Talk the trash.</span></h1>
-  <p class="sub">Pick every NFL game each week. Picks lock at kickoff. Most correct picks wins the season.</p>
+  <div class="auth-hero">
+    {% with cls='hero-patch' %}{% include "_logo.html" %}{% endwith %}
+    <h1 class="hero-word"><span>Vignery</span><span>Pick'ems</span></h1>
+    <p class="sub">Pick every NFL game. Back one underdog a week for double points. Picks lock at kickoff.</p>
+  </div>
 
   <div class="auth-cards">
     <form method="post" class="card">

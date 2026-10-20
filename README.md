@@ -1,10 +1,11 @@
-# 🏈 NFL Pick'em
+# 🏈 Vignery Pick'ems
 
 A little web app you run on your Mac so you and your friends can pick NFL winners every week.
 
 - Everyone makes an account with a name and a PIN
 - Pick the winner of every game; each pick **locks at kickoff**
-- Schedule, live scores and results load automatically from ESPN's free scoreboard feed
+- Schedule, live scores, results and betting lines (spread, over/under, moneyline) load automatically from ESPN's free scoreboard feed
+- Each week, one pick on an underdog can be your **2×**, worth double points
 - Friends' picks stay hidden until a game kicks off (no copying)
 - Season standings, weekly records, and 🏆 for each week won
 - The first person to join is the **Commissioner** (can reset PINs, remove players, force a refresh)
@@ -38,9 +39,10 @@ python app.py
 ## How scoring works
 
 - 1 point per correct pick. Wrong picks are losses. A game that ends in a tie counts for nobody.
-- Standings sort by wins, then fewest losses.
-- A week is "won" by whoever had the most correct picks once all of that week's games are final.
-- **Monday night tiebreaker:** each week, guess the total points in the last game of the week (usually Monday Night Football). If players tie for the most correct picks, the closest guess wins the week. Guesses lock at that game's kickoff and stay hidden from others until then. If it's still tied, or nobody guessed, the players share the week.
+- **Underdog 2×:** once a week you can tap **2×** on an underdog (the team getting points on the spread). If it wins, that pick is worth 2 points. If it loses, it's just a loss. You can move your 2× to another underdog until the game it's on kicks off. Games with no line yet, or a pick'em line, have no underdog.
+- Standings sort by points, then wins, then fewest losses.
+- A week is "won" by whoever had the most points once all of that week's games are final.
+- **Monday night tiebreaker:** each week, guess the total points in the last game of the week (usually Monday Night Football). If players tie for the most points, the closest guess wins the week. Guesses lock at that game's kickoff and stay hidden from others until then. If it's still tied, or nobody guessed, the players share the week.
 
 ## Files
 
@@ -49,7 +51,7 @@ python app.py
 | `app.py` | The web app: pages, logins, picks, scoring |
 | `espn.py` | Downloads the schedule and scores |
 | `templates/` | HTML for each page |
-| `static/style.css` | The look |
+| `static/` | The look: styles, logo, and fonts (Graduate and Barlow, both free under the SIL Open Font License) |
 | `pickem.db` | Your league's data when running on your Mac (created on first run) |
 | `HOSTING.md` | How to put the app online for free |
 

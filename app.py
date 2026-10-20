@@ -70,6 +70,15 @@ CREATE TABLE IF NOT EXISTS games (
     home_score INTEGER, away_score INTEGER,
     state TEXT, detail TEXT, winner TEXT
 );
+-- Underdog double: one pick per week on an underdog that's worth 2 points
+CREATE TABLE IF NOT EXISTS doubles (
+    player_id INTEGER NOT NULL REFERENCES players(id),
+    season    INTEGER NOT NULL,
+    week      INTEGER NOT NULL,
+    game_id   TEXT NOT NULL REFERENCES games(id),
+    team      TEXT NOT NULL,
+    PRIMARY KEY (player_id, season, week)
+);
 CREATE TABLE IF NOT EXISTS picks (
     player_id INTEGER NOT NULL REFERENCES players(id),
     game_id   TEXT NOT NULL REFERENCES games(id),
@@ -125,12 +134,34 @@ def close_db(_exc):
         conn.close()
 
 
+# Columns added after the first version. Existing databases get them on startup,
+# so a league that's already running keeps all its players and picks.
+NEW_GAME_COLUMNS = {
+    "home_color": "TEXT", "away_color": "TEXT",
+    "favorite": "TEXT", "spread": "REAL", "over_under": "REAL",
+    "home_ml": "INTEGER", "away_ml": "INTEGER",
+}
+
+
+def existing_columns(conn, table):
+    if USE_POSTGRES:
+        rows = conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name=?",
+            (table,)).fetchall()
+        return {r["column_name"] for r in rows}
+    return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
 def init_db():
     conn = DB()
     for statement in SCHEMA.split(";"):
         lines = [ln for ln in statement.splitlines() if not ln.strip().startswith("--")]
         if "".join(lines).strip():
             conn.execute("\n".join(lines))
+    have = existing_columns(conn, "games")
+    for col, kind in NEW_GAME_COLUMNS.items():
+        if col not in have:
+            conn.execute(f"ALTER TABLE games ADD COLUMN {col} {kind}")
     conn.commit()
     conn.close()
 
@@ -162,6 +193,23 @@ def is_locked(game):
     return game["state"] != "pre" or parse_time(game["kickoff"]) <= now_utc()
 
 
+def underdog(game):
+    """The underdog's abbreviation, or None if there's no line or it's a pick'em."""
+    fav = game["favorite"]
+    if not fav or not game["spread"]:
+        return None
+    return game["away"] if fav == game["home"] else game["home"]
+
+
+def fmt_line(n):
+    """3.0 -> '3', 3.5 -> '3.5'."""
+    return f"{n:g}" if n is not None else ""
+
+
+def fmt_ml(n):
+    return "" if n is None else (f"+{n}" if n > 0 else str(n))
+
+
 def current_player():
     pid = session.get("player_id")
     if pid is None:
@@ -171,7 +219,8 @@ def current_player():
 
 @app.context_processor
 def inject_globals():
-    return {"me": current_player(), "season": SEASON, "weeks": WEEKS}
+    return {"me": current_player(), "season": SEASON, "weeks": WEEKS,
+            "underdog": underdog, "fmt_line": fmt_line, "fmt_ml": fmt_ml}
 
 
 def login_required(view):
@@ -203,7 +252,9 @@ def sync_week(week, force=False):
         return False
     cols = ["id", "season", "week", "kickoff", "home", "away", "home_name",
             "away_name", "home_logo", "away_logo", "home_score", "away_score",
-            "state", "detail", "winner"]
+            "state", "detail", "winner"] + list(NEW_GAME_COLUMNS)
+    # Once a game kicks off ESPN may drop its line, so keep the last one we saw.
+    keep = ", ".join(f"{c}=COALESCE(excluded.{c}, games.{c})" for c in NEW_GAME_COLUMNS)
     for gm in games:
         db().execute(f"""
             INSERT INTO games ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})
@@ -211,7 +262,9 @@ def sync_week(week, force=False):
                 kickoff=excluded.kickoff, home_score=excluded.home_score,
                 away_score=excluded.away_score, state=excluded.state,
                 detail=excluded.detail, winner=excluded.winner,
-                week=excluded.week""", [gm[c] for c in cols])
+                week=excluded.week, home_logo=excluded.home_logo,
+                away_logo=excluded.away_logo, {keep}""",
+                     [gm.get(c) for c in cols])
     db().commit()
     set_setting(key, now_utc().timestamp())
     return True
@@ -251,29 +304,54 @@ def first_run_sync():
 
 
 # ---------------------------------------------------------------- scoring
-def standings():
-    """Return players sorted by season wins, with per-week records."""
-    players = db().execute("SELECT id, name FROM players ORDER BY name").fetchall()
-    rows = db().execute("""
-        SELECT p.player_id, g.week, p.team, g.winner
-        FROM picks p JOIN games g ON g.id = p.game_id
-        WHERE g.season=? AND g.winner IS NOT NULL""", (SEASON,)).fetchall()
+SCORED_PICKS_SQL = """
+    SELECT p.player_id, g.week, p.team, g.winner, d.team AS dbl
+    FROM picks p
+    JOIN games g ON g.id = p.game_id
+    LEFT JOIN doubles d ON d.player_id = p.player_id AND d.game_id = p.game_id
+    WHERE g.season=? AND g.winner IS NOT NULL"""
 
-    table = {p["id"]: {"name": p["name"], "wins": 0, "losses": 0, "weeks": {}}
-             for p in players}
+
+def pick_points(row):
+    """1 point for a correct pick, 2 if it was your underdog double."""
+    if row["team"] != row["winner"]:
+        return 0
+    return 2 if row["dbl"] == row["winner"] else 1
+
+
+def week_points(week):
+    pts = {}
+    for r in db().execute(SCORED_PICKS_SQL + " AND g.week=?", (SEASON, week)):
+        pts[r["player_id"]] = pts.get(r["player_id"], 0) + pick_points(r)
+    return pts
+
+
+def standings():
+    """Return players sorted by season points, with per-week results."""
+    players = db().execute("SELECT id, name FROM players ORDER BY name").fetchall()
+    rows = db().execute(SCORED_PICKS_SQL, (SEASON,)).fetchall()
+
+    table = {p["id"]: {"name": p["name"], "points": 0, "wins": 0, "losses": 0,
+                       "dogs": 0, "weeks": {}} for p in players}
     for r in rows:
         t = table.get(r["player_id"])
         if t is None:
             continue
-        wk = t["weeks"].setdefault(r["week"], [0, 0])
+        wk = t["weeks"].setdefault(r["week"], [0, 0, 0])   # points, wins, losses
+        pts = pick_points(r)
+        t["points"] += pts
+        wk[0] += pts
         if r["team"] == r["winner"]:
             t["wins"] += 1
-            wk[0] += 1
+            wk[1] += 1
+            if pts == 2:
+                t["dogs"] += 1
         elif r["winner"] != "TIE":   # a tied game counts for nobody
             t["losses"] += 1
-            wk[1] += 1
+            wk[2] += 1
 
-    result = sorted(table.values(), key=lambda t: (-t["wins"], t["losses"], t["name"].lower()))
+    result = sorted(table.values(),
+                    key=lambda t: (-t["points"], -t["wins"], t["losses"], t["name"].lower()))
     # weekly winners: most correct picks, Monday night guess breaks ties
     for t in result:
         t["week_wins"] = 0
@@ -298,17 +376,12 @@ def tiebreak_guesses(week):
 def week_winners(week):
     """Player ids who won the week. Empty until every game is final.
 
-    Most correct picks wins. If several players tie, whoever guessed closest to
+    Most points wins. If several players tie, whoever guessed closest to
     the Monday night total points wins (anyone tied on that shares the week).
     """
     if not week_complete(week):
         return set()
-    wins = {}
-    for r in db().execute("""
-            SELECT p.player_id, SUM(CASE WHEN p.team = g.winner THEN 1 ELSE 0 END) w
-            FROM picks p JOIN games g ON g.id = p.game_id
-            WHERE g.season=? AND g.week=? GROUP BY p.player_id""", (SEASON, week)):
-        wins[r["player_id"]] = r["w"] or 0
+    wins = week_points(week)
     best = max(wins.values(), default=0)
     if not best:
         return set()
@@ -387,6 +460,54 @@ def logout():
     return redirect(url_for("login"))
 
 
+def get_double(player_id, week):
+    return db().execute(
+        "SELECT game_id, team FROM doubles WHERE player_id=? AND season=? AND week=?",
+        (player_id, SEASON, week)).fetchone()
+
+
+def save_double(player_id, week, game_id):
+    """Set, change or clear a player's underdog double. Returns a message to show."""
+    games = {gm["id"]: gm for gm in week_games(week)}
+    current = get_double(player_id, week)
+    if current and current["game_id"] == game_id:
+        # Same game as before: make sure they didn't switch that pick to the favorite.
+        gm = games.get(game_id)
+        pick = db().execute("SELECT team FROM picks WHERE player_id=? AND game_id=?",
+                            (player_id, game_id)).fetchone()
+        if gm and not is_locked(gm) and (not pick or pick["team"] != current["team"]):
+            db().execute("DELETE FROM doubles WHERE player_id=? AND season=? AND week=?",
+                         (player_id, SEASON, week))
+            return " Your 2× was removed because you switched off the underdog."
+        return ""
+    if current and current["game_id"] in games and is_locked(games[current["game_id"]]):
+        return " Your 2× game has kicked off, so it's locked in for the week."
+    if not game_id:
+        if current:
+            db().execute("DELETE FROM doubles WHERE player_id=? AND season=? AND week=?",
+                         (player_id, SEASON, week))
+            return " Removed your 2×."
+        return ""
+
+    gm = games.get(game_id)
+    if gm is None:
+        return ""
+    if is_locked(gm):
+        return " That game has kicked off, so it can't be your 2×."
+    dog = underdog(gm)
+    if dog is None:
+        return " That game has no underdog yet, so it can't be your 2×."
+    pick = db().execute("SELECT team FROM picks WHERE player_id=? AND game_id=?",
+                        (player_id, game_id)).fetchone()
+    if not pick or pick["team"] != dog:
+        return f" Your 2× has to be on the underdog. Pick {dog} in that game to use it."
+    db().execute("""INSERT INTO doubles (player_id, season, week, game_id, team)
+                    VALUES (?,?,?,?,?) ON CONFLICT (player_id, season, week)
+                    DO UPDATE SET game_id = excluded.game_id, team = excluded.team""",
+                 (player_id, SEASON, week, game_id, dog))
+    return f" 2× on {dog} (+{fmt_line(gm['spread'])})."
+
+
 @app.route("/week/<int:week>", methods=["GET", "POST"])
 @login_required
 def picks(week):
@@ -410,6 +531,8 @@ def picks(week):
         msg = f"Saved {saved} pick{'s' if saved != 1 else ''}."
         if blocked:
             msg += f" {blocked} game{'s' if blocked != 1 else ''} had already kicked off."
+        if "double" in request.form:
+            msg += save_double(me["id"], week, request.form.get("double", ""))
 
         guess = request.form.get("tiebreak", "").strip()
         mnf = monday_game(week_games(week))
@@ -436,12 +559,19 @@ def picks(week):
     for gm in games:
         if gm["winner"] and gm["id"] in mine and gm["winner"] != "TIE":
             record[0 if mine[gm["id"]] == gm["winner"] else 1] += 1
+    dbl = get_double(me["id"], week)
+    upcoming = [gm["kickoff"] for gm in games if not is_locked(gm)]
     return render_template("picks.html", week=week, games=games, mine=mine,
                            locked={gm["id"]: is_locked(gm) for gm in games},
                            record=record, online=online,
+                           points=week_points(week).get(me["id"], 0),
                            picked=sum(1 for gm in games if gm["id"] in mine),
                            mnf=monday_game(games),
-                           my_guess=tiebreak_guesses(week).get(me["id"]))
+                           my_guess=tiebreak_guesses(week).get(me["id"]),
+                           double=dbl,
+                           double_locked=bool(dbl and any(
+                               gm["id"] == dbl["game_id"] and is_locked(gm) for gm in games)),
+                           next_kickoff=min(upcoming) if upcoming else None)
 
 
 @app.route("/week/<int:week>/everyone")
@@ -458,16 +588,15 @@ def everyone(week):
                              JOIN games g ON g.id=p.game_id
                              WHERE g.season=? AND g.week=?""", (SEASON, week)):
         grid[(r["player_id"], r["game_id"])] = r["team"]
-    totals = {}
-    for pl in players:
-        totals[pl["id"]] = sum(1 for gm in games
-                               if gm["winner"] and grid.get((pl["id"], gm["id"])) == gm["winner"])
+    totals = week_points(week)
+    doubles = {r["player_id"]: r["game_id"] for r in db().execute(
+        "SELECT player_id, game_id FROM doubles WHERE season=? AND week=?", (SEASON, week))}
     mnf = monday_game(games)
     mnf_total = None
     if mnf and mnf["state"] == "post":
         mnf_total = (mnf["home_score"] or 0) + (mnf["away_score"] or 0)
     return render_template("everyone.html", week=week, games=games, players=players,
-                           grid=grid, totals=totals,
+                           grid=grid, totals=totals, doubles=doubles,
                            locked={gm["id"]: is_locked(gm) for gm in games},
                            me_id=current_player()["id"],
                            mnf=mnf, mnf_locked=bool(mnf and is_locked(mnf)),
@@ -511,6 +640,7 @@ def admin():
             if pid != me["id"]:
                 db().execute("DELETE FROM picks WHERE player_id=?", (pid,))
                 db().execute("DELETE FROM tiebreakers WHERE player_id=?", (pid,))
+                db().execute("DELETE FROM doubles WHERE player_id=?", (pid,))
                 db().execute("DELETE FROM players WHERE id=?", (pid,))
                 db().commit()
                 flash("Player removed.")
@@ -537,7 +667,7 @@ if __name__ == "__main__":
         s.close()
     except OSError:
         lan_ip = "your-mac's-ip"
-    print("\n  🏈  NFL Pick'em is running!")
+    print("\n  🏈  Vignery Pick'ems is running!")
     print(f"  On this Mac:          http://localhost:{PORT}")
     print(f"  Friends on your Wi-Fi: http://{lan_ip}:{PORT}")
     print("  Press Ctrl+C to stop.\n")

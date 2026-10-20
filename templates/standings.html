@@ -1,32 +1,34 @@
 {% extends "base.html" %}
-{% block title %}Standings · NFL Pick'em{% endblock %}
+{% block title %}Standings · Vignery Pick'ems{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Season Standings</h1>
-    <p class="sub">One point per correct pick. Tied games count for nobody. 🏆 = weeks won (Monday night guess breaks ties).</p>
+    <h1>Season standings</h1>
+    <p class="sub">1 point per correct pick, 2 when your 2× underdog wins. Tied games count for nobody. 🏆 is weeks won.</p>
   </div>
 </div>
 
-{% if not table %}<p class="empty">No players yet.</p>{% endif %}
+{% if not table %}<p class="empty">No players yet. Share the link so your league can join.</p>{% endif %}
 
 <div class="grid-wrap">
 <table class="grid standings">
   <thead>
     <tr>
-      <th>#</th><th class="sticky">Player</th><th>W–L</th><th>Pct</th><th>🏆</th>
-      {% for w in played %}<th><a href="{{ url_for('everyone', week=w) }}">W{{ w }}</a></th>{% endfor %}
+      <th scope="col">#</th><th class="sticky" scope="col">Player</th><th scope="col">Pts</th>
+      <th scope="col">W–L</th><th scope="col" title="Underdog doubles that won">2× hits</th><th scope="col">🏆</th>
+      {% for w in played %}<th scope="col"><a href="{{ url_for('everyone', week=w) }}">W{{ w }}</a></th>{% endfor %}
     </tr>
   </thead>
   <tbody>
     {% set ns = namespace(rank=0, prev=None) %}
     {% for t in table %}
-      {% if t.wins != ns.prev %}{% set ns.rank = loop.index %}{% set ns.prev = t.wins %}{% endif %}
-      <tr class="{{ 'me' if me and t.name == me.name }} {{ 'leader' if ns.rank == 1 and t.wins }}">
+      {% if t.points != ns.prev %}{% set ns.rank = loop.index %}{% set ns.prev = t.points %}{% endif %}
+      <tr class="{{ 'me' if me and t.name == me.name }} {{ 'leader' if ns.rank == 1 and t.points }}">
         <td class="rank">{{ ns.rank }}</td>
         <td class="sticky name">{{ t.name }}</td>
-        <td><b>{{ t.wins }}–{{ t.losses }}</b></td>
-        <td>{{ '%.3f'|format(t.wins / (t.wins + t.losses)) if (t.wins + t.losses) else '—' }}</td>
+        <td class="total">{{ t.points }}</td>
+        <td>{{ t.wins }}–{{ t.losses }}</td>
+        <td>{{ t.dogs or '' }}</td>
         <td>{{ t.week_wins or '' }}</td>
         {% for w in played %}
           {% set wk = t.weeks.get(w) %}

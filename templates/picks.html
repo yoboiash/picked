@@ -1,48 +1,80 @@
 {% extends "base.html" %}
-{% block title %}Week {{ week }} · NFL Pick'em{% endblock %}
+{% block title %}Week {{ week }} · Vignery Pick'ems{% endblock %}
 {% block content %}
 {% include "_weeknav.html" %}
 
-<div class="page-head">
-  <div>
-    <h1>Week {{ week }}</h1>
-    <p class="sub">
-      {{ picked }} of {{ games|length }} picked
-      {% if record[0] or record[1] %} · You're <b>{{ record[0] }}–{{ record[1] }}</b> this week{% endif %}
-    </p>
+<section class="week-hero">
+  <h1 class="week-num" aria-label="Week {{ week }}"><span class="wk-label">Week</span><span class="wk-n">{{ week }}</span></h1>
+  <dl class="week-stats">
+    <div><dt>Your points</dt><dd>{{ points }}</dd></div>
+    <div><dt>Picked</dt><dd>{{ picked }}<small>/{{ games|length }}</small></dd></div>
+    {% if next_kickoff %}<div><dt>Next kickoff</dt><dd data-countdown="{{ next_kickoff }}">soon</dd></div>{% endif %}
+  </dl>
+  <a class="btn ghost" href="{{ url_for('everyone', week=week) }}">Everyone's picks</a>
+</section>
+
+{% if not online %}<div class="flash warn">Couldn't reach the scores feed just now. Showing the last saved scores and lines.</div>{% endif %}
+{% if not games %}<p class="empty">No games are loaded for this week yet. Check back once the schedule is out.</p>{% endif %}
+
+<form method="post" id="picks-form">
+  {% if games %}
+  <div class="dd-rule {{ 'set' if double }}">
+    <span class="chip-2x">2×</span>
+    {% if double_locked %}
+      <p>Your 2× on <b>{{ double.team }}</b> is locked in. Win it and that pick counts for 2 points.</p>
+    {% elif double %}
+      <p>Your 2× is on <b>{{ double.team }}</b>. You can move it to another underdog until that game kicks off.</p>
+      <label class="dd-clear"><input type="radio" name="double" value=""> Remove 2×</label>
+    {% else %}
+      <p>One underdog a week counts double. Tap <b>2×</b> on any underdog to use it.</p>
+      <input type="radio" name="double" value="" checked hidden>
+    {% endif %}
   </div>
-  <a class="btn ghost" href="{{ url_for('everyone', week=week) }}">See everyone's picks →</a>
-</div>
+  {% endif %}
 
-{% if not online %}<div class="flash warn">Couldn't reach the scores feed just now — showing the last saved data.</div>{% endif %}
-{% if not games %}<p class="empty">No games loaded for this week yet.</p>{% endif %}
-
-<form method="post">
   <div class="games">
   {% for gm in games %}
     {% set pick = mine.get(gm.id) %}
     {% set lock = locked[gm.id] %}
-    <div class="game {{ 'locked' if lock }} {{ 'final' if gm.state == 'post' }}">
+    {% set dog = underdog(gm) %}
+    {% set is_dbl = double and double.game_id == gm.id %}
+    <article class="game {{ 'locked' if lock }} {{ 'final' if gm.state == 'post' }} {{ 'is-double' if is_dbl }}" data-game="{{ gm.id }}" data-dog="{{ dog or '' }}">
       <div class="game-meta">
         {% if gm.state == 'pre' %}<span data-utc="{{ gm.kickoff }}">{{ gm.kickoff }}</span>
-        {% elif gm.state == 'in' %}<span class="live">● LIVE</span> {{ gm.detail }}
+        {% elif gm.state == 'in' %}<span class="live">Live</span> {{ gm.detail }}
         {% else %}{{ gm.detail or 'Final' }}{% endif %}
-        {% if lock %}<span class="lock">🔒</span>{% endif %}
+        {% if lock %}<span class="lock">Locked</span>{% endif %}
       </div>
       {% for side in ['away', 'home'] %}
         {% set abbr = gm[side] %}
         {% set result = '' %}
         {% if gm.winner and pick == abbr %}{% set result = 'right' if gm.winner == abbr else 'wrong' %}{% endif %}
-        <label class="team {{ 'picked' if pick == abbr }} {{ result }}">
+        <label class="team {{ 'picked' if pick == abbr }} {{ result }}" style="--tc: #{{ gm[side ~ '_color'] or '3d6b52' }}">
           <input type="radio" name="pick_{{ gm.id }}" value="{{ abbr }}"
                  {{ 'checked' if pick == abbr }} {{ 'disabled' if lock }}>
-          {% if gm[side ~ '_logo'] %}<img src="{{ gm[side ~ '_logo'] }}" alt="">{% endif %}
-          <span class="tname"><b>{{ abbr }}</b> <small>{{ gm[side ~ '_name'] }}</small></span>
-          {% if gm[side ~ '_score'] is not none %}<span class="score">{{ gm[side ~ '_score'] }}</span>{% endif %}
-          {% if side == 'home' %}<span class="at">home</span>{% endif %}
+          {% if gm[side ~ '_logo'] %}<img src="{{ gm[side ~ '_logo'] }}" alt="" loading="lazy">{% endif %}
+          <span class="tname"><b>{{ abbr }}</b><small>{{ gm[side ~ '_name'] }}{% if side == 'home' %}, home{% endif %}</small></span>
+          {% if gm[side ~ '_score'] is not none %}
+            <span class="score">{{ gm[side ~ '_score'] }}</span>
+          {% elif gm.spread is not none %}
+            <span class="odds {{ 'dog' if abbr == dog }}">
+              <b>{% if gm.spread == 0 %}PK{% elif abbr == gm.favorite %}−{{ fmt_line(gm.spread) }}{% else %}+{{ fmt_line(gm.spread) }}{% endif %}</b>
+              {% if gm[side ~ '_ml'] is not none %}<small>{{ fmt_ml(gm[side ~ '_ml']) }}</small>{% endif %}
+            </span>
+          {% endif %}
         </label>
       {% endfor %}
-    </div>
+      <div class="game-foot">
+        <span class="ou">{% if gm.over_under %}O/U {{ fmt_line(gm.over_under) }}{% elif gm.spread is none %}No line yet{% endif %}</span>
+        {% if dog and (is_dbl or not lock) %}
+          <label class="dd-toggle {{ 'on' if is_dbl }}" title="Make {{ dog }} your 2× underdog pick">
+            <input type="radio" name="double" value="{{ gm.id }}" {{ 'checked' if is_dbl }}
+                   {{ 'disabled' if lock or double_locked }}>
+            <span>2× {{ dog }}</span>
+          </label>
+        {% endif %}
+      </div>
+    </article>
   {% endfor %}
   </div>
 
@@ -50,15 +82,15 @@
   {% set mnf_lock = locked[mnf.id] %}
   <div class="tiebreak {{ 'locked' if mnf_lock }}">
     <div>
-      <h2>Monday Night Tiebreaker</h2>
-      <p class="sub">Guess the total points in <b>{{ mnf.away }} @ {{ mnf.home }}</b>.
-        If you tie for the most correct picks this week, closest guess wins.</p>
+      <h2>Monday night tiebreaker</h2>
+      <p class="sub">Guess the total points in <b>{{ mnf.away }} at {{ mnf.home }}</b>.
+        If you tie for the most points this week, the closest guess wins.</p>
     </div>
     <label class="tb-input">
       <input type="number" name="tiebreak" min="0" max="200" inputmode="numeric"
              value="{{ my_guess if my_guess is not none else '' }}" placeholder="—"
-             {{ 'disabled' if mnf_lock }}>
-      <span>pts {% if mnf_lock %}🔒{% endif %}</span>
+             aria-label="Total points guess" {{ 'disabled' if mnf_lock }}>
+      <span>pts</span>
     </label>
     {% if mnf.state != 'pre' %}
       <p class="tb-actual">Actual: <b>{{ (mnf.home_score or 0) + (mnf.away_score or 0) }}</b>{% if mnf.state == 'in' %} so far{% endif %}</p>
@@ -68,11 +100,44 @@
 
   {% if games %}<div class="savebar"><button class="btn big">Save my picks</button></div>{% endif %}
 </form>
+
 <script>
-  // Highlight a team the moment you tap it.
-  document.querySelectorAll(".team input").forEach(r => r.addEventListener("change", () => {
-    r.closest(".game").querySelectorAll(".team").forEach(t => t.classList.remove("picked"));
-    r.closest(".team").classList.add("picked");
-  }));
+  const form = document.getElementById("picks-form");
+  const clearDouble = () => {
+    const none = form.querySelector('input[name="double"][value=""]');
+    if (none) none.checked = true;
+  };
+  const paint = () => {
+    form.querySelectorAll(".game").forEach(card => {
+      card.querySelectorAll(".team").forEach(t =>
+        t.classList.toggle("picked", t.querySelector("input").checked));
+      const dd = card.querySelector('input[name="double"]');
+      card.classList.toggle("is-double", !!(dd && dd.checked));
+      card.querySelector(".dd-toggle")?.classList.toggle("on", !!(dd && dd.checked));
+    });
+  };
+  form.addEventListener("change", e => {
+    const el = e.target, card = el.closest(".game");
+    if (el.name === "double" && el.value && card) {
+      // Using 2× on a game picks that game's underdog for you.
+      const dogInput = card.querySelector(`.team input[value="${card.dataset.dog}"]`);
+      if (dogInput && !dogInput.disabled) dogInput.checked = true;
+    } else if (el.name.startsWith("pick_") && card) {
+      const dd = card.querySelector('input[name="double"]');
+      if (dd && dd.checked && el.value !== card.dataset.dog) clearDouble();
+    }
+    paint();
+  });
+
+  // "Next kickoff" countdown.
+  document.querySelectorAll("[data-countdown]").forEach(el => {
+    const target = new Date(el.dataset.countdown);
+    const tick = () => {
+      let s = Math.max(0, Math.round((target - new Date()) / 1000));
+      const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+      el.textContent = d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+    };
+    tick(); setInterval(tick, 30000);
+  });
 </script>
 {% endblock %}
