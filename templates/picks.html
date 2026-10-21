@@ -16,7 +16,15 @@
 {% if not online %}<div class="flash warn">Couldn't reach the scores feed just now. Showing the last saved scores and lines.</div>{% endif %}
 {% if not games %}<p class="empty">No games are loaded for this week yet. Check back once the schedule is out.</p>{% endif %}
 
+{% if paywall %}
+<div class="paybar">
+  <p><b>Pay your {{ fmt_money(pay.fee) }} entry to make picks.</b> Your picks unlock about a minute after you pay on Venmo.</p>
+  <a class="btn" href="{{ url_for('pay') }}">Pay to play</a>
+</div>
+{% endif %}
+
 <form method="post" id="picks-form">
+<fieldset class="plain" {{ 'disabled' if paywall }}>
   {% if games %}
   <div class="dd-rule {{ 'set' if double }}">
     <span class="chip-2x">2×</span>
@@ -98,7 +106,8 @@
   </div>
   {% endif %}
 
-  {% if games %}<div class="savebar"><button class="btn big">Save my picks</button></div>{% endif %}
+  {% if games and not paywall %}<div class="savebar"><button class="btn big">Save my picks</button></div>{% endif %}
+</fieldset>
 </form>
 
 <script>

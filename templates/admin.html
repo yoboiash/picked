@@ -9,6 +9,70 @@
 </div>
 
 <div class="card wide">
+  <h2>Entry fee</h2>
+  <p class="sub">Pot so far: <b>{{ fmt_money(pot_total) }}</b> from {{ pot_count }} player{{ 's' if pot_count != 1 }}.</p>
+  <form method="post" class="pay-form">
+    <input type="hidden" name="action" value="pay_settings">
+    <label>Your Venmo username
+      <input name="venmo" value="{{ pay.venmo }}" placeholder="Ashten-Vignery" autocapitalize="off" autocomplete="off">
+    </label>
+    <label>Entry fee ($)
+      <input name="fee" value="{{ '%g'|format(pay.fee) }}" inputmode="decimal">
+    </label>
+    <label class="check"><input type="checkbox" name="required" {{ 'checked' if pay.required }}>
+      Players must pay before they can make picks</label>
+    <button class="btn">Save payment settings</button>
+  </form>
+
+  <div class="inbox-status">
+    {% if pay.inbox %}
+      {% if inbox_error %}
+        <p><span class="status bad">Inbox error</span> Couldn't open <b>{{ pay.inbox_address }}</b>. Check the app password in Render. <small>({{ inbox_error }})</small></p>
+      {% else %}
+        <p><span class="status ok">Inbox connected</span> Reading Venmo payment emails from <b>{{ pay.inbox_address }}</b>.</p>
+      {% endif %}
+      <form method="post" class="inline"><input type="hidden" name="action" value="check_inbox">
+        <button class="btn small">Check for payments now</button></form>
+    {% else %}
+      <p><span class="status bad">Inbox not connected</span> Payments won't unlock on their own until
+        <code>MAIL_ADDRESS</code> and <code>MAIL_APP_PASSWORD</code> are added in Render. You can still mark people paid below.</p>
+    {% endif %}
+  </div>
+
+  {% if unmatched %}
+  <h3>Payments to sort out</h3>
+  <p class="sub">These came in without a player code, or couldn't be confirmed as coming from Venmo. Check your Venmo, then give each one to the right player.</p>
+  <table class="grid admin">
+    <thead><tr><th>From</th><th>Amount</th><th>Note</th><th>Give to</th><th></th></tr></thead>
+    <tbody>
+    {% for u in unmatched %}
+      <tr>
+        <td>{{ u.payer }}{% if not u.verified %} <span class="status bad">unconfirmed</span>{% endif %}</td>
+        <td>{{ fmt_money(u.amount) }}</td>
+        <td>{{ u.note or (('#' ~ u.code) if u.code else '—') }}</td>
+        <td>
+          <form method="post" class="inline">
+            <input type="hidden" name="action" value="assign"><input type="hidden" name="msg_id" value="{{ u.msg_id }}">
+            <select name="player_id" aria-label="Player">
+              {% for p in players %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+            </select>
+            <button class="btn small">Give</button>
+          </form>
+        </td>
+        <td>
+          <form method="post" class="inline">
+            <input type="hidden" name="action" value="dismiss"><input type="hidden" name="msg_id" value="{{ u.msg_id }}">
+            <button class="link">Ignore</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+
+<div class="card wide">
   <h2>Schedule &amp; scores</h2>
   <p>{{ game_count }} games loaded for the {{ season }} season. Scores refresh on their own every few minutes
      (every minute while games are live) whenever someone opens the app.</p>
@@ -18,31 +82,47 @@
 
 <div class="card wide">
   <h2>Players ({{ players|length }})</h2>
+  <div class="grid-wrap flat">
   <table class="grid admin">
-    <thead><tr><th>Name</th><th>Role</th><th>Reset PIN</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Paid</th><th>Role</th><th>Reset PIN</th><th></th></tr></thead>
     <tbody>
     {% for p in players %}
       <tr>
-        <td>{{ p.name }}</td>
+        <td>{{ p.name }}<br><small class="muted">code #{{ codes[p.id] }}</small></td>
+        <td>
+          {% if paid[p.id] >= pay.fee - 0.001 %}
+            <span class="status ok">{{ fmt_money(paid[p.id]) }} paid</span>
+            <form method="post" class="inline" data-msg="Clear {{ p.name }}'s payment?" onsubmit="return confirm(this.dataset.msg)">
+              <input type="hidden" name="action" value="clear_paid"><input type="hidden" name="player_id" value="{{ p.id }}">
+              <button class="link">Undo</button>
+            </form>
+          {% else %}
+            {% if paid[p.id] %}<span class="status bad">{{ fmt_money(paid[p.id]) }} of {{ fmt_money(pay.fee) }}</span>{% else %}<span class="muted">Not yet</span>{% endif %}
+            <form method="post" class="inline">
+              <input type="hidden" name="action" value="mark_paid"><input type="hidden" name="player_id" value="{{ p.id }}">
+              <button class="link">Mark paid</button>
+            </form>
+          {% endif %}
+        </td>
         <td>
           {% if p.id == me.id %}Commissioner (you)
           {% else %}
           <form method="post" class="inline">
             <input type="hidden" name="action" value="toggle_admin"><input type="hidden" name="player_id" value="{{ p.id }}">
-            <button class="link">{{ 'Commissioner — demote' if p.is_admin else 'Player — make commissioner' }}</button>
+            <button class="link">{{ 'Commissioner (demote)' if p.is_admin else 'Make commissioner' }}</button>
           </form>
           {% endif %}
         </td>
         <td>
           <form method="post" class="inline">
             <input type="hidden" name="action" value="reset_pin"><input type="hidden" name="player_id" value="{{ p.id }}">
-            <input name="pin" placeholder="new PIN" inputmode="numeric" size="8">
+            <input name="pin" placeholder="new PIN" inputmode="numeric" size="8" aria-label="New PIN for {{ p.name }}">
             <button class="btn small">Set</button>
           </form>
         </td>
         <td>
           {% if p.id != me.id %}
-          <form method="post" class="inline" onsubmit="return confirm('Remove {{ p.name }} and all their picks?')">
+          <form method="post" class="inline" data-msg="Remove {{ p.name }} and all their picks?" onsubmit="return confirm(this.dataset.msg)">
             <input type="hidden" name="action" value="remove"><input type="hidden" name="player_id" value="{{ p.id }}">
             <button class="link danger">Remove</button>
           </form>
@@ -52,5 +132,6 @@
     {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% endblock %}

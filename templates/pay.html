@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Pay to play · Vignery Pick'ems{% endblock %}
+{% block content %}
+<section class="paywall">
+  {% if done %}
+    <h1>You're paid up</h1>
+    <p class="sub">{{ fmt_money(paid) }} received. Good luck this season.</p>
+    <a class="btn big" href="{{ url_for('home') }}">Make my picks</a>
+  {% elif not link %}
+    <h1>Payments aren't set up yet</h1>
+    <p class="sub">Your commissioner hasn't added a Venmo account. Check back soon.</p>
+  {% else %}
+    <div class="ticket">
+      <p class="ticket-label">Season entry</p>
+      <p class="ticket-fee">{{ fmt_money(pay.fee) }}</p>
+      <p class="ticket-pot">Pot so far: <b>{{ fmt_money(pot_total) }}</b> from {{ pot_count }} player{{ 's' if pot_count != 1 }}. Winner takes all.</p>
+    </div>
+
+    <ol class="pay-steps">
+      <li>
+        <b>Pay on Venmo.</b> The button fills in everything for you.
+        <a class="btn big venmo" href="{{ link }}">Pay {{ fmt_money(pay.fee) }} on Venmo</a>
+      </li>
+      <li>
+        <b>Keep this note on the payment.</b> The code is how the app knows it's you.
+        <span class="note-box"><code id="note">{{ note }}</code>
+          <button type="button" class="btn small ghost" id="copy">Copy</button></span>
+        <small class="muted">If the button doesn't open Venmo, send {{ fmt_money(pay.fee) }} to <b>@{{ pay.venmo }}</b> and paste this note.</small>
+      </li>
+      <li>
+        <b>Come back here.</b> Your picks unlock about a minute after you pay.
+        <form method="post" action="{{ url_for('pay_check') }}">
+          <button class="btn ghost">I paid, check now</button>
+        </form>
+      </li>
+    </ol>
+    {% if paid %}<p class="sub">So far we've received {{ fmt_money(paid) }} from you.</p>{% endif %}
+  {% endif %}
+</section>
+<script>
+  document.getElementById("copy")?.addEventListener("click", async e => {
+    try { await navigator.clipboard.writeText(document.getElementById("note").textContent); e.target.textContent = "Copied"; }
+    catch { e.target.textContent = "Select and copy"; }
+  });
+</script>
+{% endblock %}

@@ -81,3 +81,38 @@ Your league's data in Neon stays untouched.
   and paste them to Claude.
 - **"Internal Server Error" on the site:** usually a typo in `DATABASE_URL`.
   In Render, open **Environment**, paste the Neon string again, and save.
+
+---
+
+## Entry fees with Venmo (optional)
+
+Players pay you on Venmo, and the app unlocks their picks on its own by reading
+Venmo's "___ paid you $10.00" emails from a Gmail inbox made just for this.
+
+1. **Make a free Gmail** for the league (for example `vignerypickems@gmail.com`) and turn on
+   **2-Step Verification** at myaccount.google.com → Security.
+2. **Make an app password** at **myaccount.google.com/apppasswords**. Name it `Pickems`
+   and copy the 16-letter password.
+3. **Send Venmo's payment emails to that Gmail.** Either sign up a Venmo with it, or in
+   the email account your Venmo already uses, forward them with a filter:
+   From `venmo@venmo.com`, Subject `paid you` → Forward to the new Gmail.
+   In the Venmo app, make sure **Settings → Notifications → email** is on for payments.
+4. **In Render**, open your service → **Environment** and add:
+   | Key | Value |
+   | --- | --- |
+   | `MAIL_ADDRESS` | the new Gmail address |
+   | `MAIL_APP_PASSWORD` | the 16-letter app password |
+   Save. Render restarts the app.
+5. **In the app**, open **League**, enter your Venmo username and the fee, tick
+   **Players must pay before they can make picks**, and save. The page should say
+   **Inbox connected**.
+
+How it works: each player gets a code (shown on their Pay page and on your League page).
+The Pay button opens Venmo with your username, the fee, and a note like
+`Vignery Pick'ems #K7Q2`. When that email arrives, the app credits that player within
+about a minute. Payments without a code, or that can't be confirmed as really from Venmo,
+show up under **Payments to sort out** for you to assign with one tap. You can also
+**Mark paid** anyone who pays in cash.
+
+The app only reads that one inbox. It never deletes or marks anything as read.
+To cut off its access, delete the app password at myaccount.google.com/apppasswords.

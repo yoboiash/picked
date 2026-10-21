@@ -96,6 +96,7 @@ button.link.danger { color: var(--red); }
 }
 td input { display: inline-block; width: 100px; padding: 5px 8px; margin: 0 4px 0 0; }
 .card .btn { width: 100%; margin-top: 4px; }
+.card.wide .btn { width: auto; }
 form.inline { display: inline-flex; align-items: center; margin: 0; }
 
 /* week navigation */
@@ -229,6 +230,55 @@ table.grid { border-collapse: collapse; width: 100%; font-size: 14px; }
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin: 0 4px 0 12px; vertical-align: middle; }
 .dot.right { background: var(--gold); } .dot.wrong { background: var(--red); }
 .dot.dbl { box-shadow: inset 0 0 0 2px var(--pylon); } .dot.hidden { background: var(--seam); }
+
+/* entry fee */
+fieldset.plain { border: 0; margin: 0; padding: 0; min-width: 0; }
+fieldset.plain:disabled .game, fieldset.plain:disabled .dd-rule, fieldset.plain:disabled .tiebreak { opacity: .55; }
+.topbar nav a.pay-link { color: #1E0B00; background: var(--pylon); }
+.paybar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  background: var(--pylon); color: #1E0B00; border-radius: var(--r); padding: 12px 16px; margin-bottom: 14px;
+}
+.paybar p { margin: 0; flex: 1; min-width: 220px; }
+.paybar .btn { background: #1E0B00; color: var(--chalk); }
+.paywall { max-width: 560px; margin: 24px auto 0; }
+.paywall > h1 { margin-bottom: 6px; }
+.ticket {
+  position: relative; text-align: center; padding: 22px 20px 18px; margin-bottom: 22px;
+  background: var(--gold); color: var(--gold-ink); border-radius: var(--r);
+  /* ticket-stub notches */
+  -webkit-mask: radial-gradient(circle 12px at 0 50%, #0000 98%, #000) left / 51% 100% no-repeat,
+                radial-gradient(circle 12px at 100% 50%, #0000 98%, #000) right / 51% 100% no-repeat;
+          mask: radial-gradient(circle 12px at 0 50%, #0000 98%, #000) left / 51% 100% no-repeat,
+                radial-gradient(circle 12px at 100% 50%, #0000 98%, #000) right / 51% 100% no-repeat;
+}
+.ticket-label { margin: 0; font: 1rem var(--display); }
+.ticket-fee { margin: 0; font: 4rem/1 var(--display); }
+.ticket-pot { margin: 8px 0 0; }
+.pay-steps { padding-left: 1.3em; margin: 0; display: grid; gap: 18px; }
+.pay-steps li::marker { font-family: var(--display); color: var(--gold); }
+.pay-steps .btn, .pay-steps form, .note-box { margin-top: 8px; }
+.pay-steps small { display: block; margin-top: 6px; }
+.btn.venmo { background: #3D95CE; color: #fff; box-shadow: 0 6px 0 #22688F; display: block; text-align: center; }
+.note-box { display: flex; align-items: center; gap: 10px; background: var(--felt); border-radius: 8px; padding: 8px 10px; }
+.note-box code { flex: 1; font-size: 15px; }
+.muted { color: var(--chalk-dim); }
+.status { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+.status.ok { background: rgba(244, 180, 0, .2); color: var(--gold); }
+.status.bad { background: rgba(255, 107, 26, .18); color: var(--pylon); }
+.pay-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 16px; align-items: end; margin-top: 14px; }
+.pay-form .check { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; color: var(--chalk); }
+.pay-form .check input { width: auto; margin: 0; }
+.pay-form .btn { grid-column: 1 / -1; justify-self: start; width: auto; }
+.inbox-status { border-top: 1px solid var(--seam); margin-top: 16px; padding-top: 12px; }
+.inbox-status p { margin: 0 0 10px; }
+.card h3 { font: 1rem var(--display); margin: 18px 0 4px; }
+.card select { padding: 5px 8px; background: var(--turf); color: var(--chalk); border: 1px solid var(--seam); border-radius: 6px; margin-right: 6px; font: inherit; }
+.grid-wrap.flat { background: transparent; }
+.pot { text-align: right; display: flex; flex-direction: column; align-items: flex-end; }
+.pot span { font: .9rem var(--display); color: var(--chalk-dim); }
+.pot b { font: 2.4rem/1 var(--display); color: var(--gold); }
+.pot small { color: var(--chalk-dim); }
 
 @media (max-width: 600px) {
   h1 { font-size: 1.5rem; }

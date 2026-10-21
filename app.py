@@ -8,17 +8,21 @@ On a host like Render, set DATABASE_URL to a Postgres database (e.g. Neon)
 and SECRET_KEY to a long random string. Without DATABASE_URL it uses a local
 SQLite file, so it still runs on your Mac with no setup.
 """
+import hashlib
+import hmac
 import os
 import re
 import secrets
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from urllib.parse import quote
 
 from flask import (Flask, abort, flash, g, redirect, render_template, request,
                    session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import espn
+import payments
 
 # ---------------------------------------------------------------- settings
 SEASON = int(os.environ.get("PICKEM_SEASON", 2026))
@@ -32,6 +36,10 @@ DB_PATH = os.environ.get("PICKEM_DB", os.path.join(HERE, "pickem.db"))
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 USE_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
 FETCH = espn.fetch_week            # swapped out in tests
+MAIL_ADDRESS = os.environ.get("MAIL_ADDRESS", "").strip()
+MAIL_APP_PASSWORD = os.environ.get("MAIL_APP_PASSWORD", "").replace(" ", "")
+FETCH_PAYMENTS = payments.fetch_payments   # swapped out in tests
+INBOX_CHECK_SECONDS = 60
 
 
 def load_secret_key():
@@ -69,6 +77,29 @@ CREATE TABLE IF NOT EXISTS games (
     home_logo TEXT, away_logo TEXT,
     home_score INTEGER, away_score INTEGER,
     state TEXT, detail TEXT, winner TEXT
+);
+-- Entry fees: one row per payment (from Venmo emails, or marked by the commissioner)
+CREATE TABLE IF NOT EXISTS payments (
+    id        {PLAYERS_ID},
+    player_id INTEGER NOT NULL REFERENCES players(id),
+    season    INTEGER NOT NULL,
+    amount    REAL NOT NULL,
+    source    TEXT NOT NULL,
+    ref       TEXT,
+    created   TEXT
+);
+-- Every Venmo email the app has read, so nothing is counted twice
+CREATE TABLE IF NOT EXISTS venmo_inbox (
+    msg_id    TEXT PRIMARY KEY,
+    season    INTEGER,
+    payer     TEXT,
+    amount    REAL,
+    code      TEXT,
+    note      TEXT,
+    verified  INTEGER,
+    status    TEXT,
+    player_id INTEGER,
+    received  TEXT
 );
 -- Underdog double: one pick per week on an underdog that's worth 2 points
 CREATE TABLE IF NOT EXISTS doubles (
@@ -219,8 +250,118 @@ def current_player():
 
 @app.context_processor
 def inject_globals():
-    return {"me": current_player(), "season": SEASON, "weeks": WEEKS,
-            "underdog": underdog, "fmt_line": fmt_line, "fmt_ml": fmt_ml}
+    me = current_player()
+    pay = pay_settings()
+    return {"me": me, "season": SEASON, "weeks": WEEKS,
+            "underdog": underdog, "fmt_line": fmt_line, "fmt_ml": fmt_ml,
+            "pay": pay, "fmt_money": fmt_money,
+            "me_paid": bool(me and pay["required"] and is_paid(me["id"]))}
+
+
+# ---------------------------------------------------------------- entry fees
+CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no 0/O or 1/I mix-ups
+
+
+def pay_settings():
+    fee = get_setting("pay_fee", "10")
+    try:
+        fee = float(fee)
+    except ValueError:
+        fee = 10.0
+    return {"required": get_setting("pay_required", "0") == "1",
+            "fee": fee,
+            "venmo": get_setting("venmo_user", ""),
+            "inbox": bool(MAIL_ADDRESS and MAIL_APP_PASSWORD),
+            "inbox_address": MAIL_ADDRESS}
+
+
+def fmt_money(n):
+    return f"${n:,.0f}" if float(n).is_integer() else f"${n:,.2f}"
+
+
+def pay_code(player_id):
+    """A short code (like K7Q2) that ties a Venmo payment to one player."""
+    digest = hmac.new(app.secret_key.encode(), f"pay:{SEASON}:{player_id}".encode(),
+                      hashlib.sha256).digest()
+    return "".join(CODE_ALPHABET[b % len(CODE_ALPHABET)] for b in digest[:4])
+
+
+def pay_note(player_id):
+    return f"Vignery Pick'ems #{pay_code(player_id)}"
+
+
+def venmo_link(player_id):
+    s = pay_settings()
+    user = s["venmo"].lstrip("@")
+    if not user:
+        return None
+    amount = f"{s['fee']:g}"
+    return (f"https://venmo.com/{quote(user)}?txn=pay&amount={amount}"
+            f"&note={quote(pay_note(player_id))}")
+
+
+def paid_amount(player_id):
+    row = db().execute("SELECT COALESCE(SUM(amount), 0) s FROM payments WHERE player_id=? AND season=?",
+                       (player_id, SEASON)).fetchone()
+    return float(row["s"] or 0)
+
+
+def is_paid(player_id):
+    return paid_amount(player_id) >= pay_settings()["fee"] - 0.001
+
+
+def can_pick(player):
+    return not pay_settings()["required"] or is_paid(player["id"])
+
+
+def pot():
+    row = db().execute("""SELECT COALESCE(SUM(amount), 0) s, COUNT(DISTINCT player_id) n
+                          FROM payments WHERE season=?""", (SEASON,)).fetchone()
+    return float(row["s"] or 0), int(row["n"] or 0)
+
+
+def add_payment(player_id, amount, source, ref=None):
+    db().execute("""INSERT INTO payments (player_id, season, amount, source, ref, created)
+                    VALUES (?,?,?,?,?,?)""",
+                 (player_id, SEASON, amount, source, ref, now_utc().isoformat()))
+
+
+def check_inbox(force=False):
+    """Read new Venmo emails and credit the matching players.
+
+    Returns (ok, message). Throttled to once a minute unless force=True.
+    """
+    if not (MAIL_ADDRESS and MAIL_APP_PASSWORD):
+        return False, "The payment inbox isn't connected yet."
+    last = float(get_setting("inbox_checked", 0))
+    gap = 15 if force else INBOX_CHECK_SECONDS
+    if now_utc().timestamp() - last < gap:
+        return True, ""
+    set_setting("inbox_checked", now_utc().timestamp())
+    seen = {r["msg_id"] for r in db().execute("SELECT msg_id FROM venmo_inbox")}
+    try:
+        found = FETCH_PAYMENTS(MAIL_ADDRESS, MAIL_APP_PASSWORD, date(SEASON, 8, 1), seen)
+    except Exception as e:
+        app.logger.warning("Payment inbox check failed: %s", e)
+        set_setting("inbox_error", str(e)[:200])
+        return False, "Couldn't open the payment inbox. Check MAIL_ADDRESS and MAIL_APP_PASSWORD."
+    set_setting("inbox_error", "")
+    codes = {pay_code(p["id"]): p["id"] for p in db().execute("SELECT id FROM players")}
+    credited = 0
+    for p in found:
+        pid = codes.get(p["code"]) if p["code"] else None
+        status = "matched" if (pid and p["verified"]) else "unmatched"
+        cur = db().execute("""INSERT INTO venmo_inbox (msg_id, season, payer, amount, code, note,
+                            verified, status, player_id, received)
+                        VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT (msg_id) DO NOTHING""",
+                     (p["msg_id"], SEASON, p["payer"], p["amount"], p["code"], p["note"],
+                      int(p["verified"]), status, pid if status == "matched" else None,
+                      p["received"]))
+        if status == "matched" and cur.rowcount == 1:   # skip if another request got it first
+            add_payment(pid, p["amount"], "venmo", p["msg_id"])
+            credited += 1
+    db().commit()
+    return True, f"Found {credited} new payment{'s' if credited != 1 else ''}." if found else ""
 
 
 def login_required(view):
@@ -515,6 +656,10 @@ def picks(week):
         abort(404)
     me = current_player()
 
+    if request.method == "POST" and not can_pick(me):
+        flash(f"Pay your {fmt_money(pay_settings()['fee'])} entry to make picks.")
+        return redirect(url_for("pay"))
+
     if request.method == "POST":
         saved = blocked = 0
         for game in week_games(week):
@@ -551,6 +696,8 @@ def picks(week):
         flash(msg)
         return redirect(url_for("picks", week=week))
 
+    if pay_settings()["required"] and not is_paid(me["id"]):
+        check_inbox()            # maybe they just paid
     online = sync_week(week)
     games = week_games(week)
     mine = {r["game_id"]: r["team"] for r in db().execute(
@@ -571,7 +718,34 @@ def picks(week):
                            double=dbl,
                            double_locked=bool(dbl and any(
                                gm["id"] == dbl["game_id"] and is_locked(gm) for gm in games)),
-                           next_kickoff=min(upcoming) if upcoming else None)
+                           next_kickoff=min(upcoming) if upcoming else None,
+                           paywall=not can_pick(me))
+
+
+@app.route("/pay")
+@login_required
+def pay():
+    me = current_player()
+    s = pay_settings()
+    if s["required"] and not is_paid(me["id"]):
+        check_inbox()
+    total, count = pot()
+    return render_template("pay.html", link=venmo_link(me["id"]), note=pay_note(me["id"]),
+                           paid=paid_amount(me["id"]), done=is_paid(me["id"]),
+                           pot_total=total, pot_count=count)
+
+
+@app.route("/pay/check", methods=["POST"])
+@login_required
+def pay_check():
+    me = current_player()
+    ok, msg = check_inbox(force=True)
+    if is_paid(me["id"]):
+        flash("Payment received. You're in. Go make your picks!")
+        return redirect(url_for("home"))
+    flash("No payment from you yet. Venmo's email can take a minute or two, "
+          "so try again shortly." if ok else msg)
+    return redirect(url_for("pay"))
 
 
 @app.route("/week/<int:week>/everyone")
@@ -610,7 +784,13 @@ def leaderboard():
     played = [w for w in WEEKS if db().execute(
         "SELECT 1 FROM games WHERE season=? AND week=? AND winner IS NOT NULL",
         (SEASON, w)).fetchone()]
-    return render_template("standings.html", table=standings(), played=played)
+    total, count = pot()
+    unpaid = set()
+    if pay_settings()["required"]:
+        unpaid = {p["name"] for p in db().execute("SELECT id, name FROM players")
+                  if not is_paid(p["id"])}
+    return render_template("standings.html", table=standings(), played=played,
+                           pot_total=total, pot_count=count, unpaid=unpaid)
 
 
 @app.route("/admin", methods=["GET", "POST"])
@@ -641,6 +821,9 @@ def admin():
                 db().execute("DELETE FROM picks WHERE player_id=?", (pid,))
                 db().execute("DELETE FROM tiebreakers WHERE player_id=?", (pid,))
                 db().execute("DELETE FROM doubles WHERE player_id=?", (pid,))
+                db().execute("DELETE FROM payments WHERE player_id=?", (pid,))
+                db().execute("UPDATE venmo_inbox SET status='unmatched', player_id=NULL "
+                             "WHERE player_id=?", (pid,))
                 db().execute("DELETE FROM players WHERE id=?", (pid,))
                 db().commit()
                 flash("Player removed.")
@@ -649,10 +832,70 @@ def admin():
             if pid != me["id"]:
                 db().execute("UPDATE players SET is_admin = 1 - is_admin WHERE id=?", (pid,))
                 db().commit()
+        elif action == "pay_settings":
+            venmo = request.form.get("venmo", "").strip().lstrip("@")
+            if venmo and not re.fullmatch(r"[A-Za-z0-9_-]{2,40}", venmo):
+                flash("That doesn't look like a Venmo username. Use just the name, like Ashten-Vignery.")
+                return redirect(url_for("admin"))
+            try:
+                fee = float(request.form.get("fee", "10"))
+                assert 0 < fee <= 1000
+            except (ValueError, AssertionError):
+                flash("Entry fee must be a dollar amount, like 10.")
+                return redirect(url_for("admin"))
+            required = request.form.get("required") == "on"
+            if required and not venmo:
+                flash("Add your Venmo username before turning on required payment.")
+                return redirect(url_for("admin"))
+            set_setting("venmo_user", venmo)
+            set_setting("pay_fee", f"{fee:g}")
+            set_setting("pay_required", "1" if required else "0")
+            flash("Payment settings saved. " + ("Players must pay before making picks."
+                                                if required else "Payment is optional for now."))
+        elif action == "check_inbox":
+            ok, msg = check_inbox(force=True)
+            flash(msg or ("Inbox checked. No new payments." if ok else "Couldn't check the inbox."))
+        elif action == "mark_paid":
+            pid = int(request.form["player_id"])
+            owed = pay_settings()["fee"] - paid_amount(pid)
+            if owed > 0:
+                add_payment(pid, owed, "manual")
+                db().commit()
+            flash("Marked as paid.")
+        elif action == "clear_paid":
+            pid = int(request.form["player_id"])
+            db().execute("DELETE FROM payments WHERE player_id=? AND season=?", (pid, SEASON))
+            db().execute("UPDATE venmo_inbox SET status='unmatched', player_id=NULL WHERE player_id=?",
+                         (pid,))
+            db().commit()
+            flash("Payment cleared. That player's Venmo emails are back in the unmatched list.")
+        elif action == "assign":
+            row = db().execute("SELECT * FROM venmo_inbox WHERE msg_id=? AND status='unmatched'",
+                               (request.form.get("msg_id", ""),)).fetchone()
+            pid = request.form.get("player_id", "")
+            if row and pid.isdigit():
+                db().execute("UPDATE venmo_inbox SET status='matched', player_id=? WHERE msg_id=?",
+                             (int(pid), row["msg_id"]))
+                add_payment(int(pid), row["amount"], "venmo", row["msg_id"])
+                db().commit()
+                flash(f"Gave {row['payer']}'s {fmt_money(row['amount'])} to that player.")
+        elif action == "dismiss":
+            db().execute("UPDATE venmo_inbox SET status='dismissed' WHERE msg_id=?",
+                         (request.form.get("msg_id", ""),))
+            db().commit()
         return redirect(url_for("admin"))
+    if pay_settings()["inbox"]:
+        check_inbox()
     players = db().execute("SELECT * FROM players ORDER BY lower(name)").fetchall()
     games = db().execute("SELECT COUNT(*) c FROM games WHERE season=?", (SEASON,)).fetchone()["c"]
-    return render_template("admin.html", players=players, game_count=games)
+    unmatched = db().execute("""SELECT * FROM venmo_inbox WHERE status='unmatched' AND season=?
+                                ORDER BY received DESC""", (SEASON,)).fetchall()
+    total, count = pot()
+    return render_template("admin.html", players=players, game_count=games,
+                           paid={p["id"]: paid_amount(p["id"]) for p in players},
+                           codes={p["id"]: pay_code(p["id"]) for p in players},
+                           unmatched=unmatched, pot_total=total, pot_count=count,
+                           inbox_error=get_setting("inbox_error", ""))
 
 
 # ---------------------------------------------------------------- start

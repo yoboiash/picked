@@ -6,6 +6,9 @@
     <h1>Season standings</h1>
     <p class="sub">1 point per correct pick, 2 when your 2× underdog wins. Tied games count for nobody. 🏆 is weeks won.</p>
   </div>
+  {% if pot_total %}
+  <div class="pot"><span>Pot</span><b>{{ fmt_money(pot_total) }}</b><small>{{ pot_count }} paid in. Winner takes all.</small></div>
+  {% endif %}
 </div>
 
 {% if not table %}<p class="empty">No players yet. Share the link so your league can join.</p>{% endif %}
@@ -25,7 +28,7 @@
       {% if t.points != ns.prev %}{% set ns.rank = loop.index %}{% set ns.prev = t.points %}{% endif %}
       <tr class="{{ 'me' if me and t.name == me.name }} {{ 'leader' if ns.rank == 1 and t.points }}">
         <td class="rank">{{ ns.rank }}</td>
-        <td class="sticky name">{{ t.name }}</td>
+        <td class="sticky name">{{ t.name }}{% if t.name in unpaid %} <span class="status bad">unpaid</span>{% endif %}</td>
         <td class="total">{{ t.points }}</td>
         <td>{{ t.wins }}–{{ t.losses }}</td>
         <td>{{ t.dogs or '' }}</td>

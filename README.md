@@ -8,6 +8,7 @@ A little web app you run on your Mac so you and your friends can pick NFL winner
 - Each week, one pick on an underdog can be your **2×**, worth double points
 - Friends' picks stay hidden until a game kicks off (no copying)
 - Season standings, weekly records, and 🏆 for each week won
+- Optional **entry fee on Venmo**: unpaid players can't make picks, and the app unlocks them automatically when Venmo's payment email arrives (setup in HOSTING.md)
 - The first person to join is the **Commissioner** (can reset PINs, remove players, force a refresh)
 
 ## Start it
@@ -49,7 +50,8 @@ python app.py
 | File | What it does |
 | --- | --- |
 | `app.py` | The web app: pages, logins, picks, scoring |
-| `espn.py` | Downloads the schedule and scores |
+| `espn.py` | Downloads the schedule, scores and betting lines |
+| `payments.py` | Reads Venmo payment emails from the league's Gmail |
 | `templates/` | HTML for each page |
 | `static/` | The look: styles, logo, and fonts (Graduate and Barlow, both free under the SIL Open Font License) |
 | `pickem.db` | Your league's data when running on your Mac (created on first run) |
@@ -64,7 +66,8 @@ Set these as environment variables before starting if you need to change them:
 - `PICKEM_SEASON` — season year (default `2026`)
 - `PICKEM_PORT` — port number (default `8000`; avoid 5000, which macOS uses for AirPlay)
 - `DATABASE_URL` — a Postgres connection string (used when hosted)
-- `SECRET_KEY` — keeps people signed in across restarts (used when hosted)
+- `SECRET_KEY` — keeps people signed in across restarts (used when hosted). Also used to make each player's payment code, so don't change it mid-season.
+- `MAIL_ADDRESS` / `MAIL_APP_PASSWORD` — the league Gmail and its app password, for automatic Venmo payments
 
 ## Ideas to add next
 
