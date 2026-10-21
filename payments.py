@@ -21,6 +21,7 @@ from email.utils import parseaddr, parsedate_to_datetime
 # "Jake Smith paid you $10.00"  (also works with "Fwd: ..." in front)
 SUBJECT_RE = re.compile(r"(?:^|:\s*)(?P<name>[^:]+?)\s+paid you\s+\$(?P<amt>[\d,]+(?:\.\d{1,2})?)", re.I)
 # "#K7Q2" — the player's code from the note the app pre-fills
+NOTE_CODE_RE = re.compile(r"Pick'?ems\s*#\s*([A-Z0-9]{4})\b", re.I)
 CODE_RE = re.compile(r"#\s?([A-Z0-9]{4})\b", re.I)
 
 
@@ -48,7 +49,10 @@ def _body_text(msg):
         elif ctype == "text/html":
             text = re.sub(r"(?is)<(script|style).*?</\1>", " ", text)
             rich.append(html.unescape(re.sub(r"<[^>]+>", " ", text)))
-    return re.sub(r"\s+", " ", " ".join(plain or rich)).strip()
+    # Search both versions: Venmo's plain-text part can leave out the payment note.
+    text = " ".join(plain + rich)
+    text = text.replace(" ", " ").replace("​", "").replace("’", "'").replace("‘", "'")
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def verified_venmo(msg):
@@ -74,7 +78,7 @@ def parse_message(raw):
     if not m:
         return None
     body = _body_text(msg)
-    code = CODE_RE.search(body) or CODE_RE.search(subject)
+    code = NOTE_CODE_RE.search(body) or CODE_RE.search(body) or CODE_RE.search(subject)
     try:
         received = parsedate_to_datetime(msg.get("Date")).isoformat()
     except Exception:
