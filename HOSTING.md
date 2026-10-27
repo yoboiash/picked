@@ -87,7 +87,7 @@ Your league's data in Neon stays untouched.
 ## Entry fees with Venmo (optional)
 
 Players pay you on Venmo, and the app unlocks their picks on its own by reading
-Venmo's "___ paid you $10.00" emails from a Gmail inbox made just for this.
+Venmo's payment emails ("___ paid you $10.00", or the newer "___ paid $10.00 to your Venmo account") from a Gmail inbox made just for this.
 
 1. **Make a free Gmail** for the league (for example `vignerypickems@gmail.com`) and turn on
    **2-Step Verification** at myaccount.google.com → Security.
@@ -95,7 +95,7 @@ Venmo's "___ paid you $10.00" emails from a Gmail inbox made just for this.
    and copy the 16-letter password.
 3. **Send Venmo's payment emails to that Gmail.** Either sign up a Venmo with it, or in
    the email account your Venmo already uses, forward them with a filter:
-   From `venmo@venmo.com`, Subject `paid you` → Forward to the new Gmail.
+   From `venmo@venmo.com` (leave Subject empty) → Forward to the new Gmail. The app sorts out which emails are payments.
    In the Venmo app, make sure **Settings → Notifications → email** is on for payments.
 4. **In Render**, open your service → **Environment** and add:
    | Key | Value |

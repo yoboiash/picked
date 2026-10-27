@@ -461,8 +461,13 @@ def check_inbox(force=False):
     codes = {pay_code(p["id"]): p["id"] for p in db().execute("SELECT id FROM players")}
     credited = 0
     for p in found:
+        if p.get("ignore"):       # not a payment (a receipt, a payment you sent...): remember it, skip it
+            db().execute("""INSERT INTO venmo_inbox (msg_id, season, status, received)
+                            VALUES (?,?,?,?) ON CONFLICT (msg_id) DO NOTHING""",
+                         (p["msg_id"], SEASON, "ignored", now_utc().isoformat()))
+            continue
         pid = codes.get(p["code"]) if p["code"] else None
-        status = "matched" if (pid and p["verified"]) else "unmatched"
+        status = "matched" if (pid and p["verified"] and p.get("sure", True)) else "unmatched"
         cur = db().execute("""INSERT INTO venmo_inbox (msg_id, season, payer, amount, code, note,
                             verified, status, player_id, received)
                         VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT (msg_id) DO NOTHING""",
@@ -473,7 +478,8 @@ def check_inbox(force=False):
             credit(pid, p["amount"], "venmo", p["msg_id"], start=payment_week(p["received"]))
             credited += 1
     db().commit()
-    return True, f"Found {credited} new payment{'s' if credited != 1 else ''}." if found else ""
+    real = [p for p in found if not p.get("ignore")]
+    return True, f"Found {credited} new payment{'s' if credited != 1 else ''}." if real else ""
 
 
 def login_required(view):

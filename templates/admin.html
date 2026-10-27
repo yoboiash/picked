@@ -51,7 +51,7 @@
 
   {% if unmatched %}
   <h3>Payments to sort out</h3>
-  <p class="sub">These came in without a player code, or couldn't be confirmed as coming from Venmo. Check your Venmo, then give each one to the right player.</p>
+  <p class="sub">These came in without a player code, in wording the app doesn't recognize yet, or couldn't be confirmed as coming from Venmo. Check your Venmo, then give each one to the right player (if it had a code, that player is already picked).</p>
   <table class="grid admin">
     <thead><tr><th>From</th><th>Amount</th><th>Note</th><th>Give to</th><th></th></tr></thead>
     <tbody>
@@ -64,7 +64,7 @@
           <form method="post" class="inline">
             <input type="hidden" name="action" value="assign"><input type="hidden" name="msg_id" value="{{ u.msg_id }}">
             <select name="player_id" aria-label="Player">
-              {% for p in players %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+              {% for p in players %}<option value="{{ p.id }}" {{ 'selected' if u.code and codes[p.id] == u.code }}>{{ p.name }}</option>{% endfor %}
             </select>
             <button class="btn small">Give</button>
           </form>
