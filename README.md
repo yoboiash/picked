@@ -8,6 +8,7 @@ A little web app you run on your Mac so you and your friends can pick NFL winner
 - Each week, one pick on an underdog can be your **2×**, worth double points
 - Friends' picks stay hidden until a game kicks off (no copying)
 - Season standings, weekly records, and 🏆 for each week won
+- **Primetime themes**: Thursday, Sunday and Monday night games switch the app to their own look automatically (commissioners can override it from Theme in the top bar)
 - Optional **weekly entry fee on Venmo**: each week is its own pot and the week's winner takes it. Unpaid players can't make that week's picks, paying extra covers the next weeks, and the app unlocks them automatically when Venmo's payment email arrives (setup in HOSTING.md)
 - The first person to join is the **Commissioner** (can reset PINs, remove players, force a refresh)
 

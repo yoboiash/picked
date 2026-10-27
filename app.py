@@ -15,6 +15,7 @@ import re
 import secrets
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from urllib.parse import quote
 
 from flask import (Flask, abort, flash, g, redirect, render_template, request,
@@ -276,7 +277,8 @@ def inject_globals():
             "underdog": underdog, "fmt_line": fmt_line, "fmt_ml": fmt_ml,
             "pay": pay, "fmt_money": fmt_money,
             "me_paid": bool(me and pay["required"] and is_paid(me["id"])),
-            "pay_week": current_week}
+            "pay_week": current_week,
+            "theme": theme_state(), "theme_names": THEME_NAMES}
 
 
 # ---------------------------------------------------------------- entry fees
@@ -575,6 +577,101 @@ def old_week_links_go_home():
         return redirect(url_for("home"))
 
 
+# ---------------------------------------------------------------- primetime themes
+# Thursday, Sunday and Monday night games get their own look. The NFL slots
+# games in Eastern time, so that's how the nights are worked out.
+ET = ZoneInfo("America/New_York")
+THEME_NAMES = {"regular": "Regular", "thursday": "Thursday Night",
+               "sunday": "Sunday Night", "monday": "Monday Night"}
+THEME_CHOICES = ["auto"] + list(THEME_NAMES)
+MORNING = 6            # a Thursday/Monday theme comes on at 6 AM Eastern on game day
+
+
+def kickoff_et(game):
+    return parse_time(game["kickoff"]).astimezone(ET)
+
+
+def primetime_games(games):
+    """This week's primetime games by night: {'thursday': [..], 'sunday': [..], 'monday': [..]}."""
+    nights = {"thursday": [], "sunday": [], "monday": []}
+    for gm in sorted(games, key=lambda g: (g["kickoff"], g["id"])):
+        k = kickoff_et(gm)
+        if k.weekday() == 3:
+            nights["thursday"].append(gm)
+        elif k.weekday() == 6 and k.hour >= 19:     # the 8:20 PM Eastern game
+            nights["sunday"].append(gm)
+        elif k.weekday() == 0:
+            nights["monday"].append(gm)
+    return {n: g for n, g in nights.items() if g}
+
+
+def featured_game(night_games):
+    """The game to show: the one being played, else the next one, else the last."""
+    for state in ("in", "pre"):
+        for gm in night_games:
+            if gm["state"] == state:
+                return gm
+    return night_games[-1]
+
+
+def auto_theme(games, now=None):
+    """Which primetime theme should be on right now, or None for the regular look."""
+    now = now or now_utc()
+    prime = primetime_games(games)
+    for night in ("thursday", "monday"):
+        gms = prime.get(night)
+        if not gms:
+            continue
+        start = kickoff_et(gms[0]).replace(hour=MORNING, minute=0, second=0, microsecond=0)
+        end = parse_time(gms[-1]["kickoff"]) + timedelta(hours=6)   # in case scores go stale
+        if start <= now < end and any(gm["state"] != "post" for gm in gms):
+            return night
+    snf = prime.get("sunday")
+    if snf:
+        first = parse_time(snf[0]["kickoff"])
+        day = kickoff_et(snf[0]).date()
+        afternoon = [gm for gm in games if kickoff_et(gm).date() == day
+                     and parse_time(gm["kickoff"]) < first]
+        if (first - timedelta(hours=8) <= now < parse_time(snf[-1]["kickoff"]) + timedelta(hours=6)
+                and all(gm["state"] == "post" for gm in afternoon)
+                and any(gm["state"] != "post" for gm in snf)):
+            return "sunday"
+    return None
+
+
+def theme_state():
+    """The look for this page: the commissioner's choice, or the automatic one."""
+    if "theme" not in g:
+        choice = get_setting("theme", "auto")
+        if choice not in THEME_CHOICES:
+            choice = "auto"
+        games = week_games(current_week())
+        auto = auto_theme(games)
+        name = auto if choice == "auto" else (None if choice == "regular" else choice)
+        night = primetime_games(games).get(name) if name else None
+        g.theme = {"choice": choice, "auto": auto, "name": name,
+                   "games": night or [], "game": featured_game(night) if night else None}
+    return g.theme
+
+
+def live_points(week):
+    """Each player's points for the week if every game being played ended right now."""
+    pts = dict(week_points(week))
+    for r in db().execute(
+            """SELECT p.player_id, p.team, g.home, g.away, g.home_score hs, g.away_score aws,
+                      d.team AS dbl
+               FROM picks p JOIN games g ON g.id = p.game_id
+               LEFT JOIN doubles d ON d.player_id = p.player_id AND d.game_id = p.game_id
+               WHERE g.season=? AND g.week=? AND g.state='in'""", (SEASON, week)):
+        hs, aws = r["hs"] or 0, r["aws"] or 0
+        if hs == aws:
+            continue
+        leader = r["home"] if hs > aws else r["away"]
+        if r["team"] == leader:
+            pts[r["player_id"]] = pts.get(r["player_id"], 0) + (2 if r["dbl"] == leader else 1)
+    return pts
+
+
 # ---------------------------------------------------------------- scoring
 SCORED_PICKS_SQL = """
     SELECT p.player_id, g.week, p.team, g.winner, d.team AS dbl
@@ -750,7 +847,85 @@ def home():
             my_row=my_row, my_rank=rank,
             paywall=not can_pick(me, week),
             paid_thru=paid_through(me["id"]))
+    ctx["prime"] = primetime_panel(me, week, games, table)
     return render_template("home.html", **ctx)
+
+
+@app.route("/theme", methods=["POST"])
+@login_required
+def set_theme():
+    """Commissioners can force a theme, or put it back on automatic."""
+    if not current_player()["is_admin"]:
+        abort(403)
+    choice = request.form.get("theme", "auto")
+    if choice in THEME_CHOICES:
+        set_setting("theme", choice)
+        g.pop("theme", None)
+        auto = theme_state()["auto"]
+        flash("Theme back on automatic." + (f" It's {THEME_NAMES[auto]} right now." if auto else "")
+              if choice == "auto" else
+              f"Theme set to {THEME_NAMES[choice]} for everyone until you switch it back to Auto.")
+    back = request.form.get("next", "")
+    return redirect(back if back.startswith("/") and not back.startswith("//") else url_for("home"))
+
+
+def primetime_panel(me, week, games, table):
+    """Everything the homepage's primetime banner shows."""
+    th = theme_state()
+    gm = th["game"]
+    if not gm:
+        return None
+    names = {p["id"]: p["name"] for p in db().execute("SELECT id, name FROM players")}
+    locked = is_locked(gm)
+    split = {gm["away"]: 0, gm["home"]: 0}
+    for r in db().execute("SELECT team FROM picks WHERE game_id=?", (gm["id"],)):
+        if r["team"] in split:
+            split[r["team"]] += 1
+    mine = dbl = None
+    if me:
+        row = db().execute("SELECT team FROM picks WHERE player_id=? AND game_id=?",
+                           (me["id"], gm["id"])).fetchone()
+        mine = row["team"] if row else None
+        d = get_double(me["id"], week)
+        dbl = bool(d and d["game_id"] == gm["id"])
+    leader = None
+    if gm["state"] != "pre" and gm["home_score"] is not None:
+        if gm["home_score"] != gm["away_score"]:
+            leader = gm["home"] if gm["home_score"] > gm["away_score"] else gm["away"]
+    panel = {"game": gm, "locked": locked, "split": split if locked else None,
+             "mine": mine, "double": dbl, "leader": leader, "night": th["name"]}
+
+    # "If it ends now": season standings counting the games being played.
+    if any(x["state"] == "in" for x in games):
+        live, now_pts = live_points(week), week_points(week)
+        proj = []
+        for t in table:
+            pid = next((i for i, n in names.items() if n == t["name"]), None)
+            proj.append({"name": t["name"], "points": t["points"] + live.get(pid, 0) - now_pts.get(pid, 0),
+                         "was": t["points"]})
+        proj.sort(key=lambda t: (-t["points"], t["name"].lower()))
+        rank_was = {t["name"]: 1 + sum(1 for u in table if u["points"] > t["points"]) for t in table}
+        for i, t in enumerate(proj[:3]):
+            t["rank"] = 1 + sum(1 for u in proj if u["points"] > t["points"])
+            t["move"] = rank_was[t["name"]] - t["rank"]
+        panel["projected"] = proj[:3]
+
+    # Monday night decides ties for the week: show who's tied and how close their guesses are.
+    mnf = monday_game(games)
+    if mnf and mnf["id"] == gm["id"] and gm["state"] != "pre":
+        paid = entrants(week) if pot(week)[0] else None
+        pts = {pid: p for pid, p in live_points(week).items() if paid is None or pid in paid}
+        best = max(pts.values(), default=0)
+        tied = [pid for pid, p in pts.items() if p == best and best]
+        total = (gm["home_score"] or 0) + (gm["away_score"] or 0)
+        guesses = tiebreak_guesses(week)
+        panel["tracker"] = {
+            "total": total, "best": best, "pot": pot(week)[0],
+            "rows": sorted(({"name": names.get(pid, "?"), "guess": guesses.get(pid),
+                             "off": abs(guesses[pid] - total) if pid in guesses else None,
+                             "me": bool(me and pid == me["id"])} for pid in tied),
+                           key=lambda r: (r["off"] is None, r["off"] or 0, r["name"].lower()))}
+    return panel
 
 
 @app.route("/health")

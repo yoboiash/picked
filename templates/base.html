@@ -1,13 +1,13 @@
 <!doctype html>
-<html lang="en">
+<html lang="en"{% if theme.name %} data-theme="{{ theme.name }}"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#10241A">
+  <meta name="theme-color" content="{{ {"thursday": "#140C26", "sunday": "#050B18", "monday": "#0A0A0B"}.get(theme.name, "#0B1E38") }}">
   <title>{% block title %}Vignery Pick'ems{% endblock %}</title>
   <link rel="icon" href="{{ url_for('static', filename='logo.svg') }}" type="image/svg+xml">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='logo.svg') }}">
-  <link rel="preload" href="{{ url_for('static', filename='fonts/graduate-400.woff2') }}" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="{{ url_for('static', filename='fonts/bigshoulders-900.woff2') }}" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -22,7 +22,14 @@
       <a href="{{ url_for('picks', week=this_week()) }}" class="{{ 'on' if request.endpoint in ('picks', 'everyone') }}">Picks</a>
       <a href="{{ url_for('leaderboard') }}" class="{{ 'on' if request.endpoint == 'leaderboard' }}">Standings</a>
       {% if pay.required and not me_paid %}<a href="{{ url_for('pay') }}" class="pay-link {{ 'on' if request.endpoint == 'pay' }}">Pay {{ fmt_money(pay.fee) }}</a>{% endif %}
-      {% if me.is_admin %}<a href="{{ url_for('admin') }}" class="{{ 'on' if request.endpoint == 'admin' }}">League</a>{% endif %}
+      {% if me.is_admin %}<a href="{{ url_for('admin') }}" class="{{ 'on' if request.endpoint == 'admin' }}">League</a>
+      <details class="theme-pick">
+        <summary aria-label="Change the theme"><span class="swatch sw-{{ theme.name or 'regular' }}" aria-hidden="true"></span>Theme{% if theme.choice != 'auto' %}<span class="manual">manual</span>{% endif %}</summary>
+        <div class="theme-menu">
+          <p>Everyone sees this. Auto switches on its own for Thursday, Sunday and Monday night games.</p>
+          {% include "_themepick.html" %}
+        </div>
+      </details>{% endif %}
       <a class="signout" href="{{ url_for('logout') }}">Sign out</a>
     </nav>
     {% elif request.endpoint != 'login' %}
@@ -38,6 +45,10 @@
   </main>
 
   <script>
+    // Close the theme menu when tapping anywhere else.
+    document.addEventListener("click", e => {
+      document.querySelectorAll("details.theme-pick[open]").forEach(d => { if (!d.contains(e.target)) d.open = false; });
+    });
     // Kickoff times in each viewer's own time zone.
     document.querySelectorAll("[data-utc]").forEach(el => {
       const d = new Date(el.dataset.utc);

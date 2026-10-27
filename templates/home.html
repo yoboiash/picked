@@ -2,21 +2,136 @@
 {% block content %}
 {% set picks_url = url_for('picks', week=week) %}
 
+{% if theme.name %}
+{# ------------------------------------------------ primetime banner #}
+{% set night = theme.name %}
+<section class="prime prime-{{ night }}">
+  <p class="prime-kicker">
+    {% if night == 'sunday' %}<span aria-hidden="true">★</span>{% endif %}
+    <span class="prime-tag">Primetime</span>
+    {% if night == 'thursday' %}Week {{ week }} kicks off tonight{% elif night == 'monday' %}Week {{ week }} finale{% else %}Week {{ week }}{% endif %}
+    {% if night == 'sunday' %}<span aria-hidden="true">★</span>{% endif %}
+  </p>
+  <h1 class="prime-title">
+    {% if night == 'thursday' %}Thursday <span>Night Lights</span>
+    {% elif night == 'sunday' %}Sunday Night
+    {% else %}Monday Night <span>Showdown</span>{% endif %}
+  </h1>
+
+  {% if prime %}
+  {% set gm = prime.game %}
+  <div class="prime-grid">
+    <div class="prime-game">
+      {% if gm.state == 'in' %}<div class="prime-status live"><span class="dot" aria-hidden="true"></span>Live · {{ gm.detail }}</div>
+      {% elif gm.state == 'post' %}<div class="prime-status">{{ gm.detail or 'Final' }}</div>{% endif %}
+      <div class="prime-match">
+        {% for side in ['away', 'home'] %}
+        {% set abbr = gm[side] %}
+        <div class="prime-team {{ side }} {{ 'ahead' if prime.leader == abbr }}" style="--tc: #{{ gm[side ~ '_color'] or '24426E' }}">
+          {% if gm[side ~ '_logo'] %}<img src="{{ gm[side ~ '_logo'] }}" alt="">{% else %}<span class="tc-dot" aria-hidden="true"></span>{% endif %}
+          <div class="pt-name"><b>{{ abbr }}</b><small>{{ gm[side ~ '_name'] }}{% if side == 'home' %}, home{% endif %}{% if gm.state == 'pre' and gm.spread is not none %} · {% if gm.spread == 0 %}PK{% elif abbr == gm.favorite %}−{{ fmt_line(gm.spread) }}{% else %}+{{ fmt_line(gm.spread) }}{% endif %}{% endif %}</small></div>
+          {% if gm.state != 'pre' %}<span class="pt-score">{{ gm[side ~ '_score'] if gm[side ~ '_score'] is not none else 0 }}</span>{% endif %}
+        </div>
+        {% if side == 'away' %}
+        <div class="prime-mid">
+          {% if gm.state == 'pre' %}
+            <small>Kickoff in</small>
+            <b data-countdown="{{ gm.kickoff }}" data-clock>soon</b>
+            <small data-utc="{{ gm.kickoff }}">{{ gm.kickoff }}</small>
+          {% else %}<span class="at">{{ 'vs' }}</span>{% endif %}
+        </div>
+        {% endif %}
+        {% endfor %}
+      </div>
+
+      {% if prime.split and (prime.split.values()|sum) %}
+      {% set a = prime.split[gm.away] %}{% set h = prime.split[gm.home] %}
+      <div class="prime-split">
+        <div class="ps-labels"><span>{{ a }} picked {{ gm.away }}</span><span>{{ h }} picked {{ gm.home }}</span></div>
+        <div class="ps-bar" role="img" aria-label="{{ a }} picked {{ gm.away }}, {{ h }} picked {{ gm.home }}">
+          {% if a %}<span style="flex: {{ a }}; background: #{{ gm.away_color or '5CB8FF' }}"></span>{% endif %}
+          {% if h %}<span style="flex: {{ h }}; background: #{{ gm.home_color or 'FF6A1A' }}"></span>{% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="prime-foot">
+        {% if me %}
+          <p>Your pick:
+            {% if prime.mine %}<b class="hl">{{ prime.mine }}{% if prime.double %} · 2×{% endif %}</b>
+              {% if gm.state == 'in' %}{% if prime.leader == prime.mine %}winning{% elif prime.leader %}losing{% else %}tied{% endif %}
+              {% elif gm.winner %}{{ 'won' if gm.winner == prime.mine else 'lost' }}{% endif %}
+            {% else %}<b class="hl">none{% if not prime.locked %} yet{% endif %}</b>{% endif %}
+          </p>
+          {% if not prime.locked %}<span class="muted">Everyone's picks show at kickoff</span>{% endif %}
+          {% if not prime.locked and not paywall %}<a class="btn" href="{{ url_for('picks', week=week) }}">{{ 'Change pick' if prime.mine else 'Make your pick' }}</a>{% endif %}
+        {% else %}
+          <p class="muted">Sign in to see your pick.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if prime.tracker %}
+    {% set tr = prime.tracker %}
+    <div class="prime-side tracker">
+      <div class="panel-head"><h2>Tiebreaker tracker</h2><span class="muted">Total so far <b>{{ tr.total }}</b></span></div>
+      {% if tr.rows|length > 1 %}
+        <p class="sub">{{ tr.rows|map(attribute='name')|join(' & ') }} are tied at {{ tr.best }}{% if tr.pot %} for the {{ fmt_money(tr.pot) }} pot{% endif %}. Closest guess wins.</p>
+        <ol class="tb-list">
+          {% for r in tr.rows %}
+          <li class="{{ 'lead' if loop.first and r.off is not none }} {{ 'me' if r.me }}">
+            <b>{{ r.name }}</b>
+            <span>{% if r.guess is not none %}guessed {{ r.guess }}{% else %}no guess{% endif %}</span>
+            <strong>{% if r.off is not none %}{{ r.off }} off{% else %}–{% endif %}</strong>
+          </li>
+          {% endfor %}
+        </ol>
+      {% elif tr.rows %}
+        <p class="sub"><b>{{ tr.rows[0].name }}</b> leads the week with {{ tr.best }} pts{% if tr.pot %} and is in line for the {{ fmt_money(tr.pot) }} pot{% endif %}. No tiebreaker needed so far.</p>
+      {% else %}
+        <p class="sub">Nobody's on the board yet this week.</p>
+      {% endif %}
+    </div>
+    {% elif prime.projected %}
+    <div class="prime-side">
+      <h2>If it ends now</h2>
+      <ol class="podium">
+        {% for t in prime.projected %}
+        <li class="p{{ t.rank }} {{ 'me' if me and t.name == me.name }}">
+          <span class="medal">{{ t.rank }}</span><span class="who">{{ t.name }}</span>
+          {% if t.move > 0 %}<span class="move up" title="Up {{ t.move }}">▲{{ t.move }}</span>{% elif t.move < 0 %}<span class="move down" title="Down {{ -t.move }}">▼{{ -t.move }}</span>{% endif %}
+          <span class="pts">{{ t.points }}<small> pts</small></span>
+        </li>
+        {% endfor %}
+      </ol>
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+    <p class="sub">No {{ theme_names[night] }} game this week.</p>
+  {% endif %}
+</section>
+
+{% else %}
+{# ------------------------------------------------ regular week header #}
 <section class="home-hero">
-  {% with cls='home-patch' %}{% include "_logo.html" %}{% endwith %}
-  <div class="home-hero-text">
-    <h1 class="hero-word left"><span>Vignery</span><span>Pick'ems</span></h1>
-    <p class="home-week">
-      <span class="chip-week">Week {{ week }}</span>
-      {% if next_kickoff %}
-        {% if next_kickoff == first_kickoff %}Picks open. First kickoff in
-        {% else %}Next game locks in{% endif %}
-        <b data-countdown="{{ next_kickoff }}">soon</b>
-      {% elif games %}Every game this week has kicked off.
-      {% else %}Schedule coming soon.{% endif %}
-    </p>
+  <div>
+    <p class="home-kicker">{{ season }} season</p>
+    <h1 class="home-week-num">Week {{ week }}</h1>
+  </div>
+  <div class="home-clock">
+    {% if next_kickoff %}
+      <span class="hc-label">{% if next_kickoff == first_kickoff %}First kickoff<br>in{% else %}Next game<br>locks in{% endif %}</span>
+      <div class="tiles" data-countdown="{{ next_kickoff }}" data-tiles>
+        <div><b data-d>–</b><small>Days</small></div>
+        <div><b data-h>–</b><small>Hrs</small></div>
+        <div><b data-m>–</b><small>Min</small></div>
+      </div>
+    {% elif games %}<span class="hc-label">Every game this week has kicked off.</span>
+    {% else %}<span class="hc-label">Schedule coming soon.</span>{% endif %}
   </div>
 </section>
+{% endif %}
 
 {% if not online %}<div class="flash warn">Couldn't reach the scores feed just now. Showing the last saved scores.</div>{% endif %}
 
@@ -131,14 +246,23 @@
 {% endif %}
 
 <script>
+  const pad = n => String(n).padStart(2, "0");
   document.querySelectorAll("[data-countdown]").forEach(el => {
     const target = new Date(el.dataset.countdown);
     const tick = () => {
       const s = Math.max(0, Math.round((target - new Date()) / 1000));
       const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
-      el.textContent = d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+      if ("tiles" in el.dataset) {          // scoreboard tiles: 02 DAYS 04 HRS 37 MIN
+        el.querySelector("[data-d]").textContent = pad(d);
+        el.querySelector("[data-h]").textContent = pad(h);
+        el.querySelector("[data-m]").textContent = pad(m);
+      } else if ("clock" in el.dataset) {   // primetime clock: 3:42:10
+        el.textContent = d ? `${d}d ${h}h ${pad(m)}m` : `${h}:${pad(m)}:${pad(s % 60)}`;
+      } else {
+        el.textContent = d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+      }
     };
-    tick(); setInterval(tick, 30000);
+    tick(); setInterval(tick, "clock" in el.dataset ? 1000 : 30000);
   });
 </script>
 {% endblock %}

@@ -57,7 +57,7 @@
         {% set abbr = gm[side] %}
         {% set result = '' %}
         {% if gm.winner and pick == abbr %}{% set result = 'right' if gm.winner == abbr else 'wrong' %}{% endif %}
-        <label class="team {{ 'picked' if pick == abbr }} {{ result }}" style="--tc: #{{ gm[side ~ '_color'] or '3d6b52' }}">
+        <label class="team {{ 'picked' if pick == abbr }} {{ result }}" style="--tc: #{{ gm[side ~ '_color'] or '24426E' }}">
           <input type="radio" name="pick_{{ gm.id }}" value="{{ abbr }}"
                  {{ 'checked' if pick == abbr }} {{ 'disabled' if lock }}>
           {% if gm[side ~ '_logo'] %}<img src="{{ gm[side ~ '_logo'] }}" alt="" loading="lazy">{% endif %}

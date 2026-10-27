@@ -1,0 +1,11 @@
+<form method="post" action="{{ url_for('set_theme') }}" class="theme-options">
+  <input type="hidden" name="next" value="{{ request.full_path if request.method == 'GET' else url_for('home') }}">
+  <button name="theme" value="auto" class="{{ 'on' if theme.choice == 'auto' }}">
+    <b>Auto</b><small>{{ 'Now: ' ~ theme_names[theme.auto] if theme.auto else 'Now: Regular' }}</small>
+  </button>
+  {% for key, label in theme_names.items() %}
+  <button name="theme" value="{{ key }}" class="sw-{{ key }} {{ 'on' if theme.choice == key }}">
+    <span class="swatch" aria-hidden="true"></span><b>{{ label }}</b>
+  </button>
+  {% endfor %}
+</form>
