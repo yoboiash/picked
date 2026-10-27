@@ -18,12 +18,15 @@
     </a>
     {% if me %}
     <nav>
-      <a href="{{ url_for('home') }}" class="{{ 'on' if request.endpoint == 'picks' }}">My picks</a>
+      <a href="{{ url_for('home') }}" class="{{ 'on' if request.endpoint == 'home' }}">Home</a>
+      <a href="{{ url_for('picks', week=this_week()) }}" class="{{ 'on' if request.endpoint in ('picks', 'everyone') }}">Picks</a>
       <a href="{{ url_for('leaderboard') }}" class="{{ 'on' if request.endpoint == 'leaderboard' }}">Standings</a>
       {% if pay.required and not me_paid %}<a href="{{ url_for('pay') }}" class="pay-link {{ 'on' if request.endpoint == 'pay' }}">Pay {{ fmt_money(pay.fee) }}</a>{% endif %}
       {% if me.is_admin %}<a href="{{ url_for('admin') }}" class="{{ 'on' if request.endpoint == 'admin' }}">League</a>{% endif %}
       <a class="signout" href="{{ url_for('logout') }}">Sign out</a>
     </nav>
+    {% elif request.endpoint != 'login' %}
+    <nav><a class="btn small" href="{{ url_for('login') }}">Sign in</a></nav>
     {% endif %}
   </header>
 

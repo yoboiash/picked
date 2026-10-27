@@ -241,6 +241,13 @@ def fmt_ml(n):
     return "" if n is None else (f"+{n}" if n > 0 else str(n))
 
 
+@app.template_filter("ordinal")
+def ordinal(n):
+    """1 -> '1st', 2 -> '2nd', 11 -> '11th'."""
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
 def current_player():
     pid = session.get("player_id")
     if pid is None:
@@ -252,7 +259,7 @@ def current_player():
 def inject_globals():
     me = current_player()
     pay = pay_settings()
-    return {"me": me, "season": SEASON, "weeks": WEEKS,
+    return {"me": me, "season": SEASON, "weeks": WEEKS, "this_week": current_week,
             "underdog": underdog, "fmt_line": fmt_line, "fmt_ml": fmt_ml,
             "pay": pay, "fmt_money": fmt_money,
             "me_paid": bool(me and pay["required"] and is_paid(me["id"]))}
@@ -436,12 +443,33 @@ def week_games(week):
 @app.before_request
 def first_run_sync():
     """Load the whole schedule the first time the app runs."""
-    if request.endpoint in ("static", None):
+    if request.endpoint in ("static", "health", None):
         return
     have = db().execute("SELECT COUNT(*) c FROM games WHERE season=?",
                         (SEASON,)).fetchone()["c"]
     if not have:
         sync_season(force=True)
+
+
+WEEK_PAGES = ("picks", "everyone")
+
+
+def came_from_inside_app():
+    """True when the click came from a page of this app, not a bookmark,
+    home-screen shortcut, typed address or a link texted from somewhere else."""
+    site = request.headers.get("Sec-Fetch-Site")
+    if site:                                  # every current browser sends this
+        return site == "same-origin"
+    ref = request.headers.get("Referer", "")
+    return bool(ref) and ref.split("/")[2:3] == [request.host]
+
+
+@app.before_request
+def old_week_links_go_home():
+    """Old links to a week page (/week/5, /week/5/everyone) open the homepage instead."""
+    if (request.method == "GET" and request.endpoint in WEEK_PAGES
+            and not came_from_inside_app()):
+        return redirect(url_for("home"))
 
 
 # ---------------------------------------------------------------- scoring
@@ -549,11 +577,79 @@ def week_complete(week):
 
 
 # ---------------------------------------------------------------- routes
+def leaders(table, n=3):
+    """The top n spots in the standings (players tied on points share a rank)."""
+    out, rank, prev = [], 0, None
+    for i, t in enumerate(table, 1):
+        if not t["points"]:
+            break
+        if t["points"] != prev:
+            rank, prev = i, t["points"]
+        if rank > n:
+            break
+        out.append(dict(t, rank=rank))
+    return out
+
+
+def last_week_result():
+    """(week, [winner names], points) for the latest finished week, or None."""
+    names = {p["id"]: p["name"] for p in db().execute("SELECT id, name FROM players")}
+    row = db().execute("SELECT MAX(week) w FROM games WHERE season=? AND winner IS NOT NULL",
+                       (SEASON,)).fetchone()
+    for w in range(row["w"] or 0, 0, -1):
+        if not week_complete(w):
+            continue
+        ids = week_winners(w)
+        if ids:
+            pts = week_points(w)
+            return w, sorted((names[i] for i in ids if i in names), key=str.lower), \
+                max(pts.get(i, 0) for i in ids)
+        return w, [], 0
+    return None
+
+
 @app.route("/")
 def home():
-    if current_player() is None:
-        return redirect(url_for("login"))
-    return redirect(url_for("picks", week=current_week()))
+    """The front page: this week at a glance, your status and the leaderboard."""
+    me = current_player()
+    week = current_week()
+    online = sync_week(week)
+    games = week_games(week)
+    open_games = [gm for gm in games if not is_locked(gm)]
+    upcoming = [gm["kickoff"] for gm in open_games]
+    table = standings()
+    total, count = pot()
+    ctx = dict(week=week, online=online, games=games,
+               open_count=len(open_games), next_kickoff=min(upcoming) if upcoming else None,
+               first_kickoff=min((gm["kickoff"] for gm in games), default=None),
+               top=leaders(table), last=last_week_result(),
+               player_count=len(table), pot_total=total, pot_count=count)
+    if me:
+        mine = {r["game_id"]: r["team"] for r in db().execute(
+            """SELECT p.game_id, p.team FROM picks p JOIN games g ON g.id=p.game_id
+               WHERE p.player_id=? AND g.season=? AND g.week=?""", (me["id"], SEASON, week))}
+        mnf = monday_game(games)
+        my_row = next((t for t in table if t["name"] == me["name"]), None)
+        rank = None
+        if my_row and my_row["points"]:
+            rank = 1 + sum(1 for t in table if t["points"] > my_row["points"])
+        ctx.update(
+            picked=len(mine),
+            missing=sum(1 for gm in open_games if gm["id"] not in mine),
+            double=get_double(me["id"], week),
+            dogs_left=any(underdog(gm) for gm in open_games),
+            mnf=mnf, mnf_open=bool(mnf and not is_locked(mnf)),
+            my_guess=tiebreak_guesses(week).get(me["id"]),
+            my_points=week_points(week).get(me["id"], 0),
+            my_row=my_row, my_rank=rank,
+            paywall=not can_pick(me))
+    return render_template("home.html", **ctx)
+
+
+@app.route("/health")
+def health():
+    """A tiny page for uptime pingers. Doesn't touch the database."""
+    return "ok", 200, {"Content-Type": "text/plain"}
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -742,7 +838,7 @@ def pay_check():
     ok, msg = check_inbox(force=True)
     if is_paid(me["id"]):
         flash("Payment received. You're in. Go make your picks!")
-        return redirect(url_for("home"))
+        return redirect(url_for("picks", week=current_week()))
     flash("No payment from you yet. Venmo's email can take a minute or two, "
           "so try again shortly." if ok else msg)
     return redirect(url_for("pay"))

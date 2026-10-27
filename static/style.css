@@ -280,7 +280,80 @@ fieldset.plain:disabled .game, fieldset.plain:disabled .dd-rule, fieldset.plain:
 .pot b { font: 2.4rem/1 var(--display); color: var(--gold); }
 .pot small { color: var(--chalk-dim); }
 
+/* homepage */
+.topbar nav a.btn, .topbar nav a.btn:hover { background: var(--gold); color: var(--gold-ink); padding: 6px 16px; border-radius: 999px; }
+.home-hero { display: flex; align-items: center; gap: 22px; margin: 18px 0 22px; }
+.home-patch { width: 96px; height: 112px; flex: none; filter: drop-shadow(0 8px 0 rgba(0,0,0,.25)); }
+.hero-word.left { align-items: flex-start; margin: 0; }
+.home-week { margin: 10px 0 0; color: var(--chalk-dim); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.home-week b { color: var(--chalk); font-size: 1.15rem; }
+.chip-week { font: .95rem var(--display); background: var(--gold); color: var(--gold-ink); border-radius: 6px; padding: 3px 10px; }
+.home-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.panel { background: var(--felt); border: 1px solid var(--seam); border-radius: var(--r); padding: 18px 20px; }
+.panel h2 { color: var(--gold); }
+.panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.panel-head a { color: var(--chalk-dim); font-size: 14px; font-weight: 600; text-decoration: none; }
+.panel-head a:hover { color: var(--gold); }
+.your-week { grid-row: span 2; }
+.home-grid.out .board { grid-column: 2; grid-row: 1 / span 2; }
+.checklist { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; }
+.checklist li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; background: var(--felt-2); }
+.checklist li > span:last-child { display: flex; flex-direction: column; line-height: 1.3; }
+.checklist small { color: var(--chalk-dim); font-size: 13px; }
+.tick { flex: none; width: 24px; height: 24px; border-radius: 50%; margin-top: 1px; display: grid; place-items: center;
+  box-shadow: inset 0 0 0 2px var(--seam); font: 700 14px var(--body); }
+.checklist .done .tick { background: var(--gold); box-shadow: none; color: var(--gold-ink); }
+.checklist .done .tick::after { content: "✓"; }
+.checklist .todo .tick { box-shadow: inset 0 0 0 2px var(--pylon); color: var(--pylon); }
+.checklist .todo .tick::after { content: "!"; }
+.checklist .todo b { color: var(--pylon); }
+.checklist .na { opacity: .6; }
+.checklist .na .tick::after { content: "–"; color: var(--chalk-dim); }
+.your-week .paybar { margin: 0 0 12px; }
+.your-week-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 18px; }
+.mini-stats { display: flex; gap: 22px; margin: 0; }
+.mini-stats dt { color: var(--chalk-dim); font-size: 13px; }
+.mini-stats dd { margin: 0; font: 700 1.25rem/1.2 var(--body); }
+.join .sub { margin-bottom: 16px; }
+.join-btns { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.podium { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.podium li { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 8px; background: var(--felt-2); }
+.podium li.me { box-shadow: inset 0 0 0 2px var(--chalk); }
+.medal { width: 30px; height: 30px; flex: none; border-radius: 50%; display: grid; place-items: center;
+  font: 1rem var(--display); background: var(--seam); color: var(--chalk); }
+.podium .p1 .medal { background: var(--gold); color: var(--gold-ink); }
+.podium .p1 .who::after { content: " 👑"; }
+.who { flex: 1; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pts { font: 700 1.25rem var(--body); }
+.pts small { color: var(--chalk-dim); font-size: 13px; font-weight: 500; }
+.empty.small { padding: 16px 0 4px; text-align: left; }
+.last-week { display: flex; gap: 10px; align-items: flex-start; border-top: 1px solid var(--seam); margin-top: 14px; padding-top: 12px; }
+.last-week p { margin: 0; }
+.last-week a { color: var(--chalk-dim); font-size: 14px; margin-left: 4px; }
+.trophy { font-size: 1.3rem; line-height: 1.2; }
+.pot-panel { text-align: center; }
+.pot-label { font: .9rem var(--display); color: var(--chalk-dim); display: block; }
+.pot-amount { display: block; font: 3rem/1.05 var(--display); color: var(--gold); margin-top: 4px; }
+.pot-panel .sub { margin: 6px auto 0; }
+.quick-links { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+.quick-links a { display: flex; flex-direction: column; text-decoration: none; padding: 14px 16px; border-radius: var(--r);
+  background: var(--felt); border: 1px solid var(--seam); }
+.quick-links a:hover { border-color: var(--gold); }
+.quick-links b { font: 1rem var(--display); }
+.quick-links small { color: var(--chalk-dim); font-size: 13px; }
+
+@media (max-width: 760px) {
+  .home-grid { grid-template-columns: minmax(0, 1fr); }
+  .your-week, .home-grid.out .board { grid-row: auto; grid-column: auto; }
+  .quick-links { grid-template-columns: minmax(0, 1fr); }
+}
+
 @media (max-width: 600px) {
+  .home-hero { gap: 14px; margin-top: 8px; }
+  .home-patch { width: 64px; height: 75px; }
+  .home-hero .hero-word span:first-child { font-size: 2.4rem; }
+  .home-hero .hero-word span:last-child { font-size: 1.15rem; }
+  .your-week-foot .btn { width: 100%; text-align: center; }
   h1 { font-size: 1.5rem; }
   .topbar { padding: 8px 16px; }
   .topbar nav a { padding: 5px 8px; font-size: 14px; }

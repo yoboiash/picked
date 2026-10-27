@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block content %}
+{% set picks_url = url_for('picks', week=week) %}
+
+<section class="home-hero">
+  {% with cls='home-patch' %}{% include "_logo.html" %}{% endwith %}
+  <div class="home-hero-text">
+    <h1 class="hero-word left"><span>Vignery</span><span>Pick'ems</span></h1>
+    <p class="home-week">
+      <span class="chip-week">Week {{ week }}</span>
+      {% if next_kickoff %}
+        {% if next_kickoff == first_kickoff %}Picks open. First kickoff in
+        {% else %}Next game locks in{% endif %}
+        <b data-countdown="{{ next_kickoff }}">soon</b>
+      {% elif games %}Every game this week has kicked off.
+      {% else %}Schedule coming soon.{% endif %}
+    </p>
+  </div>
+</section>
+
+{% if not online %}<div class="flash warn">Couldn't reach the scores feed just now. Showing the last saved scores.</div>{% endif %}
+
+<div class="home-grid {{ 'in' if me else 'out' }}">
+
+  {% if me %}
+  <section class="panel your-week">
+    <h2>Your week, {{ me.name }}</h2>
+    {% if paywall %}
+      <div class="paybar">
+        <p><b>Pay your {{ fmt_money(pay.fee) }} entry</b> to unlock your picks.</p>
+        <a class="btn" href="{{ url_for('pay') }}">Pay with Venmo</a>
+      </div>
+    {% endif %}
+    <ul class="checklist">
+      <li class="{{ 'done' if games and not missing else 'todo' if open_count else 'na' }}">
+        <span class="tick" aria-hidden="true"></span>
+        <span><span><b>{{ picked }} of {{ games|length }}</b> picks made</span>
+          {% if missing %}<small>{{ missing }} open game{{ 's' if missing != 1 }} still need{{ 's' if missing == 1 }} a pick</small>
+          {% elif games and open_count %}<small>You can change them until each kickoff</small>{% endif %}</span>
+      </li>
+      <li class="{{ 'done' if double else 'todo' if dogs_left else 'na' }}">
+        <span class="tick" aria-hidden="true"></span>
+        <span>{% if double %}<b>2× on {{ double.team }}</b>{% else %}<b>No 2× underdog</b>{% endif %}
+          <small>{% if double %}Worth 2 points if they win{% elif dogs_left %}Back one underdog for double points{% else %}No underdogs left to pick this week{% endif %}</small></span>
+      </li>
+      {% if mnf %}
+      <li class="{{ 'done' if my_guess is not none else 'todo' if mnf_open else 'na' }}">
+        <span class="tick" aria-hidden="true"></span>
+        <span>{% if my_guess is not none %}<b>Tiebreaker: {{ my_guess }} pts</b>{% else %}<b>No tiebreaker guess</b>{% endif %}
+          <small>Total points in {{ mnf.away }} at {{ mnf.home }}</small></span>
+      </li>
+      {% endif %}
+      {% if pay.required %}
+      <li class="{{ 'done' if me_paid else 'todo' }}">
+        <span class="tick" aria-hidden="true"></span>
+        <span><b>{{ 'Entry paid' if me_paid else 'Entry not paid' }}</b>
+          <small>{{ fmt_money(pay.fee) }} season entry</small></span>
+      </li>
+      {% endif %}
+    </ul>
+    <div class="your-week-foot">
+      {% if games and (missing or not double and dogs_left or mnf_open and my_guess is none) and not paywall %}
+        <a class="btn big" href="{{ picks_url }}">{{ 'Finish my picks' if picked else 'Make my picks' }}</a>
+      {% else %}
+        <a class="btn ghost" href="{{ picks_url }}">View my picks</a>
+      {% endif %}
+      <dl class="mini-stats">
+        <div><dt>This week</dt><dd>{{ my_points }} pts</dd></div>
+        {% if my_row %}<div><dt>Season</dt><dd>{{ my_row.points }} pts{% if my_rank %} · {{ my_rank|ordinal }}{% endif %}</dd></div>{% endif %}
+      </dl>
+    </div>
+  </section>
+  {% else %}
+  <section class="panel join">
+    <h2>Join the league</h2>
+    <p class="sub">Pick every NFL game. Back one underdog a week for double points. Picks lock at kickoff.</p>
+    <div class="join-btns">
+      <a class="btn big" href="{{ url_for('login') }}">Sign in</a>
+      <a class="btn alt" href="{{ url_for('login') }}#join">New player</a>
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="panel board">
+    <div class="panel-head">
+      <h2>Leaderboard</h2>
+      {% if me %}<a href="{{ url_for('leaderboard') }}">Full standings →</a>{% endif %}
+    </div>
+    {% if top %}
+      <ol class="podium">
+        {% for t in top %}
+        <li class="p{{ t.rank }} {{ 'me' if me and t.name == me.name }}">
+          <span class="medal">{{ t.rank }}</span>
+          <span class="who">{{ t.name }}</span>
+          <span class="pts">{{ t.points }}<small> pts</small></span>
+        </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <p class="empty small">No games scored yet. The board fills in after the first final.</p>
+    {% endif %}
+
+    {% if last %}
+    <div class="last-week">
+      <span class="trophy" aria-hidden="true">🏆</span>
+      <p>{% if last[1] %}<b>{{ last[1]|join(' & ') }}</b> won week {{ last[0] }} with {{ last[2] }} pts.
+         {% else %}Nobody scored in week {{ last[0] }}.{% endif %}
+        {% if me %}<a href="{{ url_for('everyone', week=last[0]) }}">See the picks</a>{% endif %}</p>
+    </div>
+    {% endif %}
+  </section>
+
+  {% if pot_total or pay.required %}
+  <section class="panel pot-panel">
+    <span class="pot-label">The pot</span>
+    <b class="pot-amount">{{ fmt_money(pot_total) }}</b>
+    <p class="sub">{{ pot_count }} of {{ player_count }} player{{ 's' if player_count != 1 }} paid in. Winner takes all.</p>
+  </section>
+  {% endif %}
+
+</div>
+
+{% if me %}
+<nav class="quick-links" aria-label="Shortcuts">
+  <a href="{{ picks_url }}"><b>My picks</b><small>Week {{ week }}</small></a>
+  <a href="{{ url_for('everyone', week=week) }}"><b>Everyone's picks</b><small>Shown once games kick off</small></a>
+  <a href="{{ url_for('leaderboard') }}"><b>Standings</b><small>Season points and weekly wins</small></a>
+</nav>
+{% endif %}
+
+<script>
+  document.querySelectorAll("[data-countdown]").forEach(el => {
+    const target = new Date(el.dataset.countdown);
+    const tick = () => {
+      const s = Math.max(0, Math.round((target - new Date()) / 1000));
+      const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+      el.textContent = d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+    };
+    tick(); setInterval(tick, 30000);
+  });
+</script>
+{% endblock %}

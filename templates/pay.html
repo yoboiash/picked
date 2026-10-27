@@ -5,7 +5,7 @@
   {% if done %}
     <h1>You're paid up</h1>
     <p class="sub">{{ fmt_money(paid) }} received. Good luck this season.</p>
-    <a class="btn big" href="{{ url_for('home') }}">Make my picks</a>
+    <a class="btn big" href="{{ url_for('picks', week=this_week()) }}">Make my picks</a>
   {% elif not link %}
     <h1>Payments aren't set up yet</h1>
     <p class="sub">Your commissioner hasn't added a Venmo account. Check back soon.</p>
