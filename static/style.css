@@ -366,3 +366,11 @@ fieldset.plain:disabled .game, fieldset.plain:disabled .dd-rule, fieldset.plain:
   .week-hero > .btn { width: 100%; text-align: center; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* weekly pots */
+.section-title { color: var(--gold); margin: 28px 0 10px; }
+.paywall .section-title { font-size: 1.1rem; }
+.grid.pots th.left, .grid.pots td.left { text-align: left; }
+.grid.pots td a { color: var(--gold); font-weight: 700; }
+.grid.pots td small { font-weight: 500; font-size: 12px; }
+.gold { color: var(--gold); }

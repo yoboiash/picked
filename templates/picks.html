@@ -18,7 +18,7 @@
 
 {% if paywall %}
 <div class="paybar">
-  <p><b>Pay your {{ fmt_money(pay.fee) }} entry to make picks.</b> Your picks unlock about a minute after you pay on Venmo.</p>
+  <p><b>Pay your {{ fmt_money(pay.fee) }} week {{ week }} entry to make picks.</b> Your picks unlock about a minute after you pay on Venmo.</p>
   <a class="btn" href="{{ url_for('pay') }}">Pay to play</a>
 </div>
 {% endif %}

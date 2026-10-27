@@ -27,7 +27,7 @@
     <h2>Your week, {{ me.name }}</h2>
     {% if paywall %}
       <div class="paybar">
-        <p><b>Pay your {{ fmt_money(pay.fee) }} entry</b> to unlock your picks.</p>
+        <p><b>Pay your {{ fmt_money(pay.fee) }} week {{ week }} entry</b> to unlock your picks.</p>
         <a class="btn" href="{{ url_for('pay') }}">Pay with Venmo</a>
       </div>
     {% endif %}
@@ -53,8 +53,8 @@
       {% if pay.required %}
       <li class="{{ 'done' if me_paid else 'todo' }}">
         <span class="tick" aria-hidden="true"></span>
-        <span><b>{{ 'Entry paid' if me_paid else 'Entry not paid' }}</b>
-          <small>{{ fmt_money(pay.fee) }} season entry</small></span>
+        <span><b>{{ 'Week %d entry paid'|format(week) if me_paid else 'Week %d entry not paid'|format(week) }}</b>
+          <small>{% if paid_thru and paid_thru > week %}Paid through week {{ paid_thru }}{% else %}{{ fmt_money(pay.fee) }} a week, winner takes the pot{% endif %}</small></span>
       </li>
       {% endif %}
     </ul>
@@ -103,18 +103,20 @@
     {% if last %}
     <div class="last-week">
       <span class="trophy" aria-hidden="true">🏆</span>
-      <p>{% if last[1] %}<b>{{ last[1]|join(' & ') }}</b> won week {{ last[0] }} with {{ last[2] }} pts.
-         {% else %}Nobody scored in week {{ last[0] }}.{% endif %}
-        {% if me %}<a href="{{ url_for('everyone', week=last[0]) }}">See the picks</a>{% endif %}</p>
+      <p>{% if last.names %}<b>{{ last.names|join(' & ') }}</b> won week {{ last.week }} with {{ last.points }} pts{% if last.pot %}
+           and {{ 'split ' if last.names|length > 1 }}the <b class="gold">{{ fmt_money(last.pot) }}</b> pot{% endif %}.
+         {% else %}Nobody scored in week {{ last.week }}.{% endif %}
+        {% if me %}<a href="{{ url_for('everyone', week=last.week) }}">See the picks</a>{% endif %}</p>
     </div>
     {% endif %}
   </section>
 
   {% if pot_total or pay.required %}
   <section class="panel pot-panel">
-    <span class="pot-label">The pot</span>
+    <span class="pot-label">Week {{ week }} pot</span>
     <b class="pot-amount">{{ fmt_money(pot_total) }}</b>
-    <p class="sub">{{ pot_count }} of {{ player_count }} player{{ 's' if player_count != 1 }} paid in. Winner takes all.</p>
+    <p class="sub">{{ pot_count }} of {{ player_count }} player{{ 's' if player_count != 1 }} paid in.
+      {{ fmt_money(pay.fee) }} a week, and the week's winner takes it all.</p>
   </section>
   {% endif %}
 

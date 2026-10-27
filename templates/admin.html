@@ -9,18 +9,19 @@
 </div>
 
 <div class="card wide">
-  <h2>Entry fee</h2>
-  <p class="sub">Pot so far: <b>{{ fmt_money(pot_total) }}</b> from {{ pot_count }} player{{ 's' if pot_count != 1 }}.</p>
+  <h2>Weekly entry fee</h2>
+  <p class="sub">Each week is its own pot, and the week's winner takes it. Week {{ week }} pot so far:
+    <b>{{ fmt_money(pot_total) }}</b> from {{ pot_count }} player{{ 's' if pot_count != 1 }}.</p>
   <form method="post" class="pay-form">
     <input type="hidden" name="action" value="pay_settings">
     <label>Your Venmo username
       <input name="venmo" value="{{ pay.venmo }}" placeholder="Ashten-Vignery" autocapitalize="off" autocomplete="off">
     </label>
-    <label>Entry fee ($)
+    <label>Entry fee per week ($)
       <input name="fee" value="{{ '%g'|format(pay.fee) }}" inputmode="decimal">
     </label>
     <label class="check"><input type="checkbox" name="required" {{ 'checked' if pay.required }}>
-      Players must pay before they can make picks</label>
+      Players must pay each week before they can make that week's picks</label>
     <button class="btn">Save payment settings</button>
   </form>
 
@@ -72,6 +73,36 @@
   {% endif %}
 </div>
 
+{% if pots %}
+<div class="card wide">
+  <h2>Weekly pots</h2>
+  <p class="sub">Once you've sent a week's winner their money, mark it paid out so everyone can see it on the Standings page.</p>
+  <div class="grid-wrap flat">
+  <table class="grid admin">
+    <thead><tr><th>Week</th><th>Pot</th><th>Winner</th><th></th></tr></thead>
+    <tbody>
+    {% for p in pots %}
+      <tr>
+        <td>{{ p.week }}</td>
+        <td>{{ fmt_money(p.total) }} <small class="muted">from {{ p.count }}</small></td>
+        <td>{% if not p.done %}<span class="muted">In progress</span>
+            {% elif p.winners %}<b>{{ p.winners|join(' & ') }}</b>{% if p.winners|length > 1 %} <small class="muted">split, {{ fmt_money(p.total / p.winners|length) }} each</small>{% endif %}
+            {% else %}<span class="muted">Nobody scored</span>{% endif %}</td>
+        <td>{% if p.done %}
+          <form method="post" class="inline">
+            <input type="hidden" name="action" value="payout"><input type="hidden" name="week" value="{{ p.week }}">
+            {% if p.paid_out %}<span class="status ok">Paid out</span> <button class="link">Undo</button>
+            {% else %}<button class="btn small">Mark paid out</button>{% endif %}
+          </form>
+        {% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
 <div class="card wide">
   <h2>Schedule &amp; scores</h2>
   <p>{{ game_count }} games loaded for the {{ season }} season. Scores refresh on their own every few minutes
@@ -84,15 +115,15 @@
   <h2>Players ({{ players|length }})</h2>
   <div class="grid-wrap flat">
   <table class="grid admin">
-    <thead><tr><th>Name</th><th>Paid</th><th>Role</th><th>Reset PIN</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Week {{ week }}</th><th>Role</th><th>Reset PIN</th><th></th></tr></thead>
     <tbody>
     {% for p in players %}
       <tr>
         <td>{{ p.name }}<br><small class="muted">code #{{ codes[p.id] }}</small></td>
         <td>
           {% if paid[p.id] >= pay.fee - 0.001 %}
-            <span class="status ok">{{ fmt_money(paid[p.id]) }} paid</span>
-            <form method="post" class="inline" data-msg="Clear {{ p.name }}'s payment?" onsubmit="return confirm(this.dataset.msg)">
+            <span class="status ok">Paid{% if paid_thru[p.id] and paid_thru[p.id] > week %} through wk {{ paid_thru[p.id] }}{% endif %}</span>
+            <form method="post" class="inline" data-msg="Clear {{ p.name }}'s week {{ week }} payment?" onsubmit="return confirm(this.dataset.msg)">
               <input type="hidden" name="action" value="clear_paid"><input type="hidden" name="player_id" value="{{ p.id }}">
               <button class="link">Undo</button>
             </form>

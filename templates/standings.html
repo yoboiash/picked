@@ -7,7 +7,7 @@
     <p class="sub">1 point per correct pick, 2 when your 2× underdog wins. Tied games count for nobody. 🏆 is weeks won.</p>
   </div>
   {% if pot_total %}
-  <div class="pot"><span>Pot</span><b>{{ fmt_money(pot_total) }}</b><small>{{ pot_count }} paid in. Winner takes all.</small></div>
+  <div class="pot"><span>Week {{ week }} pot</span><b>{{ fmt_money(pot_total) }}</b><small>{{ pot_count }} paid in. The week's winner takes it.</small></div>
   {% endif %}
 </div>
 
@@ -28,7 +28,7 @@
       {% if t.points != ns.prev %}{% set ns.rank = loop.index %}{% set ns.prev = t.points %}{% endif %}
       <tr class="{{ 'me' if me and t.name == me.name }} {{ 'leader' if ns.rank == 1 and t.points }}">
         <td class="rank">{{ ns.rank }}</td>
-        <td class="sticky name">{{ t.name }}{% if t.name in unpaid %} <span class="status bad">unpaid</span>{% endif %}</td>
+        <td class="sticky name">{{ t.name }}{% if t.name in unpaid %} <span class="status bad">week {{ week }} unpaid</span>{% endif %}</td>
         <td class="total">{{ t.points }}</td>
         <td>{{ t.wins }}–{{ t.losses }}</td>
         <td>{{ t.dogs or '' }}</td>
@@ -42,4 +42,23 @@
   </tbody>
 </table>
 </div>
+
+{% if pots %}
+<h2 class="section-title">Weekly pots</h2>
+<div class="grid-wrap">
+<table class="grid pots">
+  <thead><tr><th scope="col">Week</th><th scope="col">Pot</th><th class="left" scope="col">Winner</th><th scope="col"></th></tr></thead>
+  <tbody>
+  {% for p in pots %}
+    <tr>
+      <td><a href="{{ url_for('everyone', week=p.week) }}">{{ p.week }}</a></td>
+      <td class="total">{{ fmt_money(p.total) }}<small class="muted"> · {{ p.count }} in</small></td>
+      <td class="left">{% if p.winners %}{{ p.winners|join(' & ') }}{% if p.winners|length > 1 %} <small class="muted">({{ fmt_money(p.total / p.winners|length) }} each)</small>{% endif %}{% else %}<span class="muted">Nobody scored</span>{% endif %}</td>
+      <td>{% if p.paid_out %}<span class="status ok">Paid out</span>{% else %}<span class="status bad">Not paid out</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
 {% endblock %}

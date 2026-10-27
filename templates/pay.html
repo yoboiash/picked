@@ -2,39 +2,48 @@
 {% block title %}Pay to play · Vignery Pick'ems{% endblock %}
 {% block content %}
 <section class="paywall">
-  {% if done %}
-    <h1>You're paid up</h1>
-    <p class="sub">{{ fmt_money(paid) }} received. Good luck this season.</p>
-    <a class="btn big" href="{{ url_for('picks', week=this_week()) }}">Make my picks</a>
-  {% elif not link %}
+  {% if not link %}
     <h1>Payments aren't set up yet</h1>
     <p class="sub">Your commissioner hasn't added a Venmo account. Check back soon.</p>
   {% else %}
-    <div class="ticket">
-      <p class="ticket-label">Season entry</p>
-      <p class="ticket-fee">{{ fmt_money(pay.fee) }}</p>
-      <p class="ticket-pot">Pot so far: <b>{{ fmt_money(pot_total) }}</b> from {{ pot_count }} player{{ 's' if pot_count != 1 }}. Winner takes all.</p>
-    </div>
+    {% if done %}
+      <h1>You're in for week {{ week }}</h1>
+      <p class="sub">
+        {% if paid_thru and paid_thru > week %}You've paid through week {{ paid_thru }}.{% else %}{{ fmt_money(paid) }} received.{% endif %}
+        The week {{ week }} pot is <b>{{ fmt_money(pot_total) }}</b> from {{ pot_count }} player{{ 's' if pot_count != 1 }}. Good luck.</p>
+      <a class="btn big" href="{{ url_for('picks', week=week) }}">Make my picks</a>
+
+      <h2 class="section-title">Pay ahead</h2>
+      <p class="sub">Each week is a new {{ fmt_money(pay.fee) }} pot. Pay now and it covers week {{ (paid_thru or week) + 1 }},
+        so you don't have to remember. Send {{ fmt_money(pay.fee * 2) }} to cover two weeks, and so on.</p>
+    {% else %}
+      <div class="ticket">
+        <p class="ticket-label">Week {{ week }} entry</p>
+        <p class="ticket-fee">{{ fmt_money(pay.fee) }}</p>
+        <p class="ticket-pot">Week {{ week }} pot so far: <b>{{ fmt_money(pot_total) }}</b> from {{ pot_count }} player{{ 's' if pot_count != 1 }}. The week's winner takes it all.</p>
+      </div>
+      {% if paid %}<p class="sub">So far we've received {{ fmt_money(paid) }} from you for week {{ week }}.</p>{% endif %}
+    {% endif %}
 
     <ol class="pay-steps">
       <li>
-        <b>Pay on Venmo.</b> The button fills in everything for you.
-        <a class="btn big venmo" href="{{ link }}">Pay {{ fmt_money(pay.fee) }} on Venmo</a>
+        <b>Pay on Venmo.</b> The button fills in everything for you. Each week is a new pot,
+        and paying more covers the next weeks too ({{ fmt_money(pay.fee * 2) }} = 2 weeks).
+        <a class="btn {{ 'big' if not done }} venmo" href="{{ link }}">Pay {{ fmt_money(pay.fee) }} on Venmo</a>
       </li>
       <li>
-        <b>Keep this note on the payment.</b> The code is how the app knows it's you.
+        <b>Keep this note on the payment.</b> The code is how the app knows it's you. It's the same every week.
         <span class="note-box"><code id="note">{{ note }}</code>
           <button type="button" class="btn small ghost" id="copy">Copy</button></span>
         <small class="muted">If the button doesn't open Venmo, send {{ fmt_money(pay.fee) }} to <b>@{{ pay.venmo }}</b> and paste this note.</small>
       </li>
       <li>
-        <b>Come back here.</b> Your picks unlock about a minute after you pay.
+        <b>Come back here.</b> {{ 'The app picks up your payment' if done else 'Your picks unlock' }} about a minute after you pay.
         <form method="post" action="{{ url_for('pay_check') }}">
           <button class="btn ghost">I paid, check now</button>
         </form>
       </li>
     </ol>
-    {% if paid %}<p class="sub">So far we've received {{ fmt_money(paid) }} from you.</p>{% endif %}
   {% endif %}
 </section>
 <script>

@@ -40,6 +40,9 @@ MAIL_ADDRESS = os.environ.get("MAIL_ADDRESS", "").strip()
 MAIL_APP_PASSWORD = os.environ.get("MAIL_APP_PASSWORD", "").replace(" ", "")
 FETCH_PAYMENTS = payments.fetch_payments   # swapped out in tests
 INBOX_CHECK_SECONDS = 60
+# Entry fees used to be one payment per season. When the app switched to weekly
+# pots, the payments already made were that week's pot (already paid out).
+OLD_PAYMENTS_WEEK = int(os.environ.get("PICKEM_OLD_PAYMENTS_WEEK", 7))
 
 
 def load_secret_key():
@@ -193,6 +196,16 @@ def init_db():
     for col, kind in NEW_GAME_COLUMNS.items():
         if col not in have:
             conn.execute(f"ALTER TABLE games ADD COLUMN {col} {kind}")
+    if "week" not in existing_columns(conn, "payments"):
+        # Switching to weekly pots: every payment made so far was for one week,
+        # and that pot has already been paid out.
+        conn.execute("ALTER TABLE payments ADD COLUMN week INTEGER")
+        old = conn.execute("SELECT COUNT(*) c FROM payments").fetchone()["c"]
+        conn.execute("UPDATE payments SET week=? WHERE week IS NULL", (OLD_PAYMENTS_WEEK,))
+        if old:
+            conn.execute("""INSERT INTO settings (key, value) VALUES (?, '1')
+                            ON CONFLICT (key) DO NOTHING""",
+                         (f"payout:{SEASON}:{OLD_PAYMENTS_WEEK}",))
     conn.commit()
     conn.close()
 
@@ -262,7 +275,8 @@ def inject_globals():
     return {"me": me, "season": SEASON, "weeks": WEEKS, "this_week": current_week,
             "underdog": underdog, "fmt_line": fmt_line, "fmt_ml": fmt_ml,
             "pay": pay, "fmt_money": fmt_money,
-            "me_paid": bool(me and pay["required"] and is_paid(me["id"]))}
+            "me_paid": bool(me and pay["required"] and is_paid(me["id"])),
+            "pay_week": current_week}
 
 
 # ---------------------------------------------------------------- entry fees
@@ -307,30 +321,119 @@ def venmo_link(player_id):
             f"&note={quote(pay_note(player_id))}")
 
 
-def paid_amount(player_id):
-    row = db().execute("SELECT COALESCE(SUM(amount), 0) s FROM payments WHERE player_id=? AND season=?",
-                       (player_id, SEASON)).fetchone()
+def paid_amount(player_id, week=None):
+    """What a player has paid toward one week's entry (this week by default)."""
+    week = week or current_week()
+    row = db().execute("""SELECT COALESCE(SUM(amount), 0) s FROM payments
+                          WHERE player_id=? AND season=? AND week=?""",
+                       (player_id, SEASON, week)).fetchone()
     return float(row["s"] or 0)
 
 
-def is_paid(player_id):
-    return paid_amount(player_id) >= pay_settings()["fee"] - 0.001
+def is_paid(player_id, week=None):
+    return paid_amount(player_id, week) >= pay_settings()["fee"] - 0.001
 
 
-def can_pick(player):
-    return not pay_settings()["required"] or is_paid(player["id"])
+def can_pick(player, week=None):
+    return not pay_settings()["required"] or is_paid(player["id"], week)
 
 
-def pot():
+def paid_through(player_id):
+    """The last week in a row a player has paid for, starting this week (None if unpaid)."""
+    last = None
+    for w in WEEKS:
+        if w < current_week():
+            continue
+        if not is_paid(player_id, w):
+            break
+        last = w
+    return last
+
+
+def pot(week=None):
+    """(total, number of players) paid into one week's pot."""
+    week = week or current_week()
     row = db().execute("""SELECT COALESCE(SUM(amount), 0) s, COUNT(DISTINCT player_id) n
-                          FROM payments WHERE season=?""", (SEASON,)).fetchone()
+                          FROM payments WHERE season=? AND week=?""", (SEASON, week)).fetchone()
     return float(row["s"] or 0), int(row["n"] or 0)
 
 
-def add_payment(player_id, amount, source, ref=None):
-    db().execute("""INSERT INTO payments (player_id, season, amount, source, ref, created)
-                    VALUES (?,?,?,?,?,?)""",
-                 (player_id, SEASON, amount, source, ref, now_utc().isoformat()))
+def add_payment(player_id, amount, source, ref=None, week=None):
+    db().execute("""INSERT INTO payments (player_id, season, amount, source, ref, created, week)
+                    VALUES (?,?,?,?,?,?,?)""",
+                 (player_id, SEASON, round(amount, 2), source, ref, now_utc().isoformat(),
+                  week or current_week()))
+
+
+def week_at(when):
+    """The pick'em week a moment belongs to: the first week whose last game
+    hadn't finished yet (a game is over about 4 hours after kickoff)."""
+    rows = db().execute("""SELECT week, MAX(kickoff) last FROM games WHERE season=?
+                           GROUP BY week ORDER BY week""", (SEASON,)).fetchall()
+    for r in rows:
+        if parse_time(r["last"]) + timedelta(hours=4) > when:
+            return r["week"]
+    return rows[-1]["week"] if rows else 1
+
+
+def credit(player_id, amount, source, ref=None, start=None):
+    """Put a payment toward the week's entry. Anything extra rolls into the
+    following unpaid weeks, so $20 covers two weeks."""
+    fee = pay_settings()["fee"]
+    start = start or current_week()
+    left = amount
+    for w in WEEKS:
+        if w < start or left <= 0.001:
+            continue
+        owed = fee - paid_amount(player_id, w)
+        if owed <= 0.001:
+            continue
+        take = left if w == WEEKS[-1] else min(owed, left)
+        add_payment(player_id, take, source, ref, w)
+        left -= take
+    if left > 0.001:                   # paid for every week already: keep it on the last one
+        add_payment(player_id, left, source, ref, WEEKS[-1])
+
+
+def entrants(week):
+    """Players who paid that week's entry in full."""
+    fee = pay_settings()["fee"]
+    return {r["player_id"] for r in db().execute(
+        """SELECT player_id, SUM(amount) s FROM payments WHERE season=? AND week=?
+           GROUP BY player_id""", (SEASON, week)) if float(r["s"]) >= fee - 0.001}
+
+
+def pot_winners(week):
+    """Who takes that week's pot: the week winner among players who paid in."""
+    paid = entrants(week)
+    return week_winners(week, among=paid) if paid else set()
+
+
+def pot_history():
+    """Every week that had a pot: amount, winners and whether it's been paid out."""
+    names = {p["id"]: p["name"] for p in db().execute("SELECT id, name FROM players")}
+    out = []
+    for r in db().execute("""SELECT week, SUM(amount) s, COUNT(DISTINCT player_id) n
+                             FROM payments WHERE season=? GROUP BY week ORDER BY week DESC""",
+                          (SEASON,)).fetchall():
+        w = r["week"]
+        done = week_complete(w)
+        out.append({"week": w, "total": float(r["s"]), "count": int(r["n"]), "done": done,
+                    "winners": sorted((names.get(i, "?") for i in pot_winners(w)), key=str.lower)
+                    if done else [],
+                    "paid_out": get_setting(f"payout:{SEASON}:{w}") == "1"})
+    return out
+
+
+def payment_week(received):
+    """The week a Venmo payment counts toward, from when it was sent."""
+    try:
+        when = datetime.fromisoformat(received)
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return current_week()
+    return week_at(when)
 
 
 def check_inbox(force=False):
@@ -365,7 +468,7 @@ def check_inbox(force=False):
                       int(p["verified"]), status, pid if status == "matched" else None,
                       p["received"]))
         if status == "matched" and cur.rowcount == 1:   # skip if another request got it first
-            add_payment(pid, p["amount"], "venmo", p["msg_id"])
+            credit(pid, p["amount"], "venmo", p["msg_id"], start=payment_week(p["received"]))
             credited += 1
     db().commit()
     return True, f"Found {credited} new payment{'s' if credited != 1 else ''}." if found else ""
@@ -542,15 +645,18 @@ def tiebreak_guesses(week):
         (SEASON, week))}
 
 
-def week_winners(week):
+def week_winners(week, among=None):
     """Player ids who won the week. Empty until every game is final.
 
     Most points wins. If several players tie, whoever guessed closest to
     the Monday night total points wins (anyone tied on that shares the week).
+    Pass `among` to only count some players (like those who paid into the pot).
     """
     if not week_complete(week):
         return set()
     wins = week_points(week)
+    if among is not None:
+        wins = {pid: w for pid, w in wins.items() if pid in among}
     best = max(wins.values(), default=0)
     if not best:
         return set()
@@ -592,19 +698,19 @@ def leaders(table, n=3):
 
 
 def last_week_result():
-    """(week, [winner names], points) for the latest finished week, or None."""
+    """The latest finished week: who won it, their points, and the pot they took."""
     names = {p["id"]: p["name"] for p in db().execute("SELECT id, name FROM players")}
     row = db().execute("SELECT MAX(week) w FROM games WHERE season=? AND winner IS NOT NULL",
                        (SEASON,)).fetchone()
     for w in range(row["w"] or 0, 0, -1):
         if not week_complete(w):
             continue
-        ids = week_winners(w)
-        if ids:
-            pts = week_points(w)
-            return w, sorted((names[i] for i in ids if i in names), key=str.lower), \
-                max(pts.get(i, 0) for i in ids)
-        return w, [], 0
+        total, _ = pot(w)
+        ids = pot_winners(w) if total else week_winners(w)
+        pts = week_points(w)
+        return {"week": w, "pot": total,
+                "names": sorted((names[i] for i in ids if i in names), key=str.lower),
+                "points": max((pts.get(i, 0) for i in ids), default=0)}
     return None
 
 
@@ -642,7 +748,8 @@ def home():
             my_guess=tiebreak_guesses(week).get(me["id"]),
             my_points=week_points(week).get(me["id"], 0),
             my_row=my_row, my_rank=rank,
-            paywall=not can_pick(me))
+            paywall=not can_pick(me, week),
+            paid_thru=paid_through(me["id"]))
     return render_template("home.html", **ctx)
 
 
@@ -752,8 +859,10 @@ def picks(week):
         abort(404)
     me = current_player()
 
-    if request.method == "POST" and not can_pick(me):
-        flash(f"Pay your {fmt_money(pay_settings()['fee'])} entry to make picks.")
+    # Weeks that are over are all locked anyway, so only this week and later need paying for.
+    paywall = week >= current_week() and not can_pick(me, week)
+    if request.method == "POST" and paywall:
+        flash(f"Pay your {fmt_money(pay_settings()['fee'])} week {week} entry to make picks.")
         return redirect(url_for("pay"))
 
     if request.method == "POST":
@@ -792,8 +901,9 @@ def picks(week):
         flash(msg)
         return redirect(url_for("picks", week=week))
 
-    if pay_settings()["required"] and not is_paid(me["id"]):
+    if paywall:
         check_inbox()            # maybe they just paid
+        paywall = not can_pick(me, week)
     online = sync_week(week)
     games = week_games(week)
     mine = {r["game_id"]: r["team"] for r in db().execute(
@@ -815,7 +925,7 @@ def picks(week):
                            double_locked=bool(dbl and any(
                                gm["id"] == dbl["game_id"] and is_locked(gm) for gm in games)),
                            next_kickoff=min(upcoming) if upcoming else None,
-                           paywall=not can_pick(me))
+                           paywall=paywall)
 
 
 @app.route("/pay")
@@ -825,19 +935,24 @@ def pay():
     s = pay_settings()
     if s["required"] and not is_paid(me["id"]):
         check_inbox()
-    total, count = pot()
+    week = current_week()
+    total, count = pot(week)
     return render_template("pay.html", link=venmo_link(me["id"]), note=pay_note(me["id"]),
-                           paid=paid_amount(me["id"]), done=is_paid(me["id"]),
-                           pot_total=total, pot_count=count)
+                           week=week, paid=paid_amount(me["id"], week), done=is_paid(me["id"], week),
+                           paid_thru=paid_through(me["id"]), pot_total=total, pot_count=count)
 
 
 @app.route("/pay/check", methods=["POST"])
 @login_required
 def pay_check():
     me = current_player()
+    before = paid_through(me["id"])
     ok, msg = check_inbox(force=True)
-    if is_paid(me["id"]):
-        flash("Payment received. You're in. Go make your picks!")
+    after = paid_through(me["id"])
+    if after and after != before:
+        flash(f"Payment received. You're in for week {current_week()}. Go make your picks!"
+              if after == current_week() else
+              f"Payment received. You're paid through week {after}.")
         return redirect(url_for("picks", week=current_week()))
     flash("No payment from you yet. Venmo's email can take a minute or two, "
           "so try again shortly." if ok else msg)
@@ -886,7 +1001,8 @@ def leaderboard():
         unpaid = {p["name"] for p in db().execute("SELECT id, name FROM players")
                   if not is_paid(p["id"])}
     return render_template("standings.html", table=standings(), played=played,
-                           pot_total=total, pot_count=count, unpaid=unpaid)
+                           week=current_week(), pot_total=total, pot_count=count, unpaid=unpaid,
+                           pots=[h for h in pot_history() if h["done"]])
 
 
 @app.route("/admin", methods=["GET", "POST"])
@@ -957,14 +1073,24 @@ def admin():
             if owed > 0:
                 add_payment(pid, owed, "manual")
                 db().commit()
-            flash("Marked as paid.")
+            flash(f"Marked as paid for week {current_week()}.")
         elif action == "clear_paid":
             pid = int(request.form["player_id"])
-            db().execute("DELETE FROM payments WHERE player_id=? AND season=?", (pid, SEASON))
-            db().execute("UPDATE venmo_inbox SET status='unmatched', player_id=NULL WHERE player_id=?",
-                         (pid,))
+            week = current_week()
+            # A Venmo payment can cover several weeks, so undo all of it and put the
+            # email back in the list to sort out (giving it out again re-spreads it).
+            refs = [r["ref"] for r in db().execute(
+                "SELECT DISTINCT ref FROM payments WHERE player_id=? AND season=? AND week=? "
+                "AND source='venmo' AND ref IS NOT NULL", (pid, SEASON, week))]
+            db().execute("DELETE FROM payments WHERE player_id=? AND season=? AND week=?",
+                         (pid, SEASON, week))
+            for ref in refs:
+                db().execute("DELETE FROM payments WHERE ref=? AND source='venmo'", (ref,))
+                db().execute("UPDATE venmo_inbox SET status='unmatched', player_id=NULL WHERE msg_id=?",
+                             (ref,))
             db().commit()
-            flash("Payment cleared. That player's Venmo emails are back in the unmatched list.")
+            flash(f"Week {week} payment cleared." + (
+                " Their Venmo payment is back in the list to sort out." if refs else ""))
         elif action == "assign":
             row = db().execute("SELECT * FROM venmo_inbox WHERE msg_id=? AND status='unmatched'",
                                (request.form.get("msg_id", ""),)).fetchone()
@@ -972,9 +1098,13 @@ def admin():
             if row and pid.isdigit():
                 db().execute("UPDATE venmo_inbox SET status='matched', player_id=? WHERE msg_id=?",
                              (int(pid), row["msg_id"]))
-                add_payment(int(pid), row["amount"], "venmo", row["msg_id"])
+                credit(int(pid), row["amount"], "venmo", row["msg_id"],
+                       start=payment_week(row["received"]))
                 db().commit()
                 flash(f"Gave {row['payer']}'s {fmt_money(row['amount'])} to that player.")
+        elif action == "payout":
+            key = f"payout:{SEASON}:{int(request.form.get('week', 0))}"
+            set_setting(key, "0" if get_setting(key) == "1" else "1")
         elif action == "dismiss":
             db().execute("UPDATE venmo_inbox SET status='dismissed' WHERE msg_id=?",
                          (request.form.get("msg_id", ""),))
@@ -987,8 +1117,10 @@ def admin():
     unmatched = db().execute("""SELECT * FROM venmo_inbox WHERE status='unmatched' AND season=?
                                 ORDER BY received DESC""", (SEASON,)).fetchall()
     total, count = pot()
-    return render_template("admin.html", players=players, game_count=games,
+    return render_template("admin.html", players=players, game_count=games, week=current_week(),
                            paid={p["id"]: paid_amount(p["id"]) for p in players},
+                           paid_thru={p["id"]: paid_through(p["id"]) for p in players},
+                           pots=pot_history(),
                            codes={p["id"]: pay_code(p["id"]) for p in players},
                            unmatched=unmatched, pot_total=total, pot_count=count,
                            inbox_error=get_setting("inbox_error", ""))
