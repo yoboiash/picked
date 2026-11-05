@@ -31,6 +31,7 @@ SUBJECT_RES = [
 NOT_INCOMING_RE = re.compile(r"^\s*(?:(?:fwd?|fw):\s*)*(?:you\b|.*\b(?:request|requests|requested|charged|reminder|declined|cancel))", re.I)
 AMOUNT_RE = re.compile(r"\$\s?([\d,]+\.\d{2})")
 # "#K7Q2" — the player's code from the note the app pre-fills
+NOTE_CODE_RE = re.compile(r"Pick'?ems\W{0,3}([A-Z0-9]{4})\b", re.I)
 CODE_RE = re.compile(r"#\s?([A-Z0-9]{4})\b", re.I)
 
 
@@ -58,7 +59,17 @@ def _body_text(msg):
         elif ctype == "text/html":
             text = re.sub(r"(?is)<(script|style).*?</\1>", " ", text)
             rich.append(html.unescape(re.sub(r"<[^>]+>", " ", text)))
-    return re.sub(r"\s+", " ", " ".join(plain or rich)).strip()
+    # Search both versions: Venmo's plain-text part can leave out the payment note.
+    text = html.unescape(" ".join(plain + rich))
+    text = text.replace("\u00a0", " ").replace("\u200b", "").replace("\u2019", "'").replace("\u2018", "'")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _find_codes(body, subject):
+    """Every possible player code in an email, most likely first (the app keeps
+    the first one that really belongs to a player)."""
+    found = NOTE_CODE_RE.findall(body) + CODE_RE.findall(body) + CODE_RE.findall(subject)
+    return list(dict.fromkeys(c.upper() for c in found))
 
 
 def verified_venmo(msg):
@@ -85,7 +96,8 @@ def parse_message(raw):
     msg = email.message_from_bytes(raw) if isinstance(raw, bytes) else email.message_from_string(raw)
     subject = _decode(msg.get("Subject"))
     body = _body_text(msg)
-    code = CODE_RE.search(body) or CODE_RE.search(subject)
+    codes = _find_codes(body, subject)
+    code = codes[0] if codes else None
     m = next((m for r in SUBJECT_RES if (m := r.search(subject))), None)
     if m and m.group("name").strip().lower() == "you":
         return None
@@ -107,7 +119,7 @@ def parse_message(raw):
     msg_id = (msg.get("Message-ID") or "").strip() or hashlib.sha1(
         raw if isinstance(raw, bytes) else raw.encode()).hexdigest()
     note = ""
-    nm = re.search(r"(Vignery Pick'?ems[^.\n]{0,40})", body, re.I)
+    nm = re.search(r"(Vignery Pick'?ems\W{0,3}(?:[A-Z0-9]{4}\b)?)", body, re.I)
     if nm:
         note = nm.group(1).strip()
     return {
@@ -115,7 +127,8 @@ def parse_message(raw):
         "payer": payer,
         "amount": amount,
         "sure": sure,
-        "code": code.group(1).upper() if code else None,
+        "code": code,
+        "codes": codes,
         "note": note,
         "verified": verified_venmo(msg),
         "from": parseaddr(msg.get("From", ""))[1].lower(),

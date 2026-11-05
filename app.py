@@ -40,6 +40,7 @@ FETCH = espn.fetch_week            # swapped out in tests
 MAIL_ADDRESS = os.environ.get("MAIL_ADDRESS", "").strip()
 MAIL_APP_PASSWORD = os.environ.get("MAIL_APP_PASSWORD", "").replace(" ", "")
 FETCH_PAYMENTS = payments.fetch_payments   # swapped out in tests
+RESCAN_KEY = "inbox_rescan_notes"          # set once old emails have been re-read
 INBOX_CHECK_SECONDS = 60
 # Entry fees used to be one payment per season. When the app switched to weekly
 # pots, the payments already made were that week's pot (already paid out).
@@ -450,7 +451,13 @@ def check_inbox(force=False):
     if now_utc().timestamp() - last < gap:
         return True, ""
     set_setting("inbox_checked", now_utc().timestamp())
-    seen = {r["msg_id"] for r in db().execute("SELECT msg_id FROM venmo_inbox")}
+    known = db().execute("SELECT msg_id, status, code FROM venmo_inbox").fetchall()
+    # One time only: look again at emails filed before the app could read codes in
+    # Venmo's designed email. Dismissed and already-credited emails stay as they are.
+    rescan = get_setting(RESCAN_KEY, "") != "1"
+    retry = {r["msg_id"]: r["status"] for r in known if rescan and (
+        r["status"] == "ignored" or (r["status"] == "unmatched" and not r["code"]))}
+    seen = {r["msg_id"] for r in known} - set(retry)
     try:
         found = FETCH_PAYMENTS(MAIL_ADDRESS, MAIL_APP_PASSWORD, date(SEASON, 8, 1), seen)
     except Exception as e:
@@ -466,8 +473,25 @@ def check_inbox(force=False):
                             VALUES (?,?,?,?) ON CONFLICT (msg_id) DO NOTHING""",
                          (p["msg_id"], SEASON, "ignored", now_utc().isoformat()))
             continue
-        pid = codes.get(p["code"]) if p["code"] else None
+        code = next((c for c in p.get("codes", [p["code"]]) if c in codes), p["code"])
+        p["code"] = code
+        pid = codes.get(code) if code else None
         status = "matched" if (pid and p["verified"] and p.get("sure", True)) else "unmatched"
+        if p["msg_id"] in retry:
+            # Only auto-credit if that week is still owed, so a player you already
+            # marked paid isn't credited twice. Otherwise it waits for you to sort out.
+            week = payment_week(p["received"])
+            if status == "matched" and paid_amount(pid, week) >= pay_settings()["fee"] - 0.001:
+                status = "unmatched"
+            cur = db().execute("""UPDATE venmo_inbox SET payer=?, amount=?, code=?, note=?, verified=?,
+                                  status=?, player_id=?, received=? WHERE msg_id=? AND status=?""",
+                               (p["payer"], p["amount"], code, p["note"], int(p["verified"]), status,
+                                pid if status == "matched" else None, p["received"],
+                                p["msg_id"], retry[p["msg_id"]]))
+            if status == "matched" and cur.rowcount == 1:
+                credit(pid, p["amount"], "venmo", p["msg_id"], start=week)
+                credited += 1
+            continue
         cur = db().execute("""INSERT INTO venmo_inbox (msg_id, season, payer, amount, code, note,
                             verified, status, player_id, received)
                         VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT (msg_id) DO NOTHING""",
@@ -477,6 +501,8 @@ def check_inbox(force=False):
         if status == "matched" and cur.rowcount == 1:   # skip if another request got it first
             credit(pid, p["amount"], "venmo", p["msg_id"], start=payment_week(p["received"]))
             credited += 1
+    if rescan:
+        set_setting(RESCAN_KEY, "1")
     db().commit()
     real = [p for p in found if not p.get("ignore")]
     return True, f"Found {credited} new payment{'s' if credited != 1 else ''}." if real else ""
