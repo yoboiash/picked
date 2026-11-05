@@ -1189,7 +1189,7 @@ def pay_check():
 @app.route("/week/<int:week>/everyone")
 @login_required
 def everyone(week):
-    """Everyone's picks — only shown for games that have kicked off."""
+    """Everyone's picks — only shown for games that have locked."""
     if week not in WEEKS:
         abort(404)
     sync_week(week)
