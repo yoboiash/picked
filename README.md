@@ -3,7 +3,7 @@
 A little web app you run on your Mac so you and your friends can pick NFL winners every week.
 
 - Everyone makes an account with a name and a PIN
-- Pick the winner of every game; each pick **locks at kickoff**
+- Pick the winner of every game; each pick **locks at kickoff**, and every game left (Sunday night, Monday night and the tiebreaker) locks when the last late-afternoon Sunday game starts
 - Schedule, live scores, results and betting lines (spread, over/under, moneyline) load automatically from ESPN's free scoreboard feed
 - Each week, one pick on an underdog can be your **2×**, worth double points
 - Friends' picks stay hidden until a game kicks off (no copying)
@@ -44,7 +44,7 @@ python app.py
 - **Underdog 2×:** once a week you can tap **2×** on an underdog (the team getting points on the spread). If it wins, that pick is worth 2 points. If it loses, it's just a loss. You can move your 2× to another underdog until the game it's on kicks off. Games with no line yet, or a pick'em line, have no underdog.
 - Standings sort by points, then wins, then fewest losses.
 - A week is "won" by whoever had the most points once all of that week's games are final.
-- **Monday night tiebreaker:** each week, guess the total points in the last game of the week (usually Monday Night Football). If players tie for the most points, the closest guess wins the week. Guesses lock at that game's kickoff and stay hidden from others until then. If it's still tied, or nobody guessed, the players share the week.
+- **Monday night tiebreaker:** each week, guess the total points in the last game of the week (usually Monday Night Football). If players tie for the most points, the closest guess wins the week. Guesses lock with the Sunday lock (or at that game's kickoff in a week with no late-afternoon Sunday game) and stay hidden from others until then. If it's still tied, or nobody guessed, the players share the week.
 
 ## Files
 

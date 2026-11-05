@@ -63,7 +63,7 @@
               {% elif gm.winner %}{{ 'won' if gm.winner == prime.mine else 'lost' }}{% endif %}
             {% else %}<b class="hl">none{% if not prime.locked %} yet{% endif %}</b>{% endif %}
           </p>
-          {% if not prime.locked %}<span class="muted">Everyone's picks show at kickoff</span>{% endif %}
+          {% if not prime.locked %}<span class="muted">Everyone's picks show when this game locks</span>{% endif %}
           {% if not prime.locked and not paywall %}<a class="btn" href="{{ url_for('picks', week=week) }}">{{ 'Change pick' if prime.mine else 'Make your pick' }}</a>{% endif %}
         {% else %}
           <p class="muted">Sign in to see your pick.</p>
@@ -151,7 +151,7 @@
         <span class="tick" aria-hidden="true"></span>
         <span><span><b>{{ picked }} of {{ games|length }}</b> picks made</span>
           {% if missing %}<small>{{ missing }} open game{{ 's' if missing != 1 }} still need{{ 's' if missing == 1 }} a pick</small>
-          {% elif games and open_count %}<small>You can change them until each kickoff</small>{% endif %}</span>
+          {% elif games and open_count %}<small>You can change them until each game locks</small>{% endif %}</span>
       </li>
       <li class="{{ 'done' if double else 'todo' if dogs_left else 'na' }}">
         <span class="tick" aria-hidden="true"></span>
@@ -188,7 +188,7 @@
   {% else %}
   <section class="panel join">
     <h2>Join the league</h2>
-    <p class="sub">Pick every NFL game. Back one underdog a week for double points. Picks lock at kickoff.</p>
+    <p class="sub">Pick every NFL game. Back one underdog a week for double points. Picks lock at kickoff, and everything left locks when Sunday's last afternoon game starts.</p>
     <div class="join-btns">
       <a class="btn big" href="{{ url_for('login') }}">Sign in</a>
       <a class="btn alt" href="{{ url_for('login') }}#join">New player</a>

@@ -14,6 +14,7 @@
 </section>
 
 {% if not online %}<div class="flash warn">Couldn't reach the scores feed just now. Showing the last saved scores and lines.</div>{% endif %}
+{% if sunday_lock_at %}<p class="sub">All remaining picks, including Sunday night, Monday night and the tiebreaker, lock at <b data-utc="{{ sunday_lock_at }}">{{ sunday_lock_at }}</b>.</p>{% endif %}
 {% if not games %}<p class="empty">No games are loaded for this week yet. Check back once the schedule is out.</p>{% endif %}
 
 {% if paywall %}
@@ -31,7 +32,7 @@
     {% if double_locked %}
       <p>Your 2× on <b>{{ double.team }}</b> is locked in. Win it and that pick counts for 2 points.</p>
     {% elif double %}
-      <p>Your 2× is on <b>{{ double.team }}</b>. You can move it to another underdog until that game kicks off.</p>
+      <p>Your 2× is on <b>{{ double.team }}</b>. You can move it to another underdog until that game locks.</p>
       <label class="dd-clear"><input type="radio" name="double" value=""> Remove 2×</label>
     {% else %}
       <p>One underdog a week counts double. Tap <b>2×</b> on any underdog to use it.</p>

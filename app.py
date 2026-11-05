@@ -234,9 +234,25 @@ def parse_time(s):
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
+def sunday_lock(week):
+    """When everything left in a week locks: the last late-afternoon Sunday kickoff
+    (the 4:25 PM Eastern game, usually). None if that week has no such game."""
+    locks = g.setdefault("sunday_locks", {})
+    if week not in locks:
+        times = [k for k in map(kickoff_et, week_games(week))
+                 if k.weekday() == 6 and LATE_START <= k.hour < NIGHT_START]
+        locks[week] = max(times) if times else None
+    return locks[week]
+
+
 def is_locked(game):
-    """A game locks at kickoff (or as soon as ESPN says it has started)."""
-    return game["state"] != "pre" or parse_time(game["kickoff"]) <= now_utc()
+    """A game locks at kickoff (or as soon as ESPN says it has started). Sunday night
+    and Monday games also lock once the last late-afternoon Sunday game kicks off."""
+    now = now_utc()
+    if game["state"] != "pre" or parse_time(game["kickoff"]) <= now:
+        return True
+    cutoff = sunday_lock(game["week"])
+    return cutoff is not None and cutoff <= now
 
 
 def underdog(game):
@@ -617,6 +633,8 @@ THEME_NAMES = {"regular": "Regular", "thursday": "Thursday Night",
                "sunday": "Sunday Night", "monday": "Monday Night"}
 THEME_CHOICES = ["auto"] + list(THEME_NAMES)
 MORNING = 6            # a Thursday/Monday theme comes on at 6 AM Eastern on game day
+LATE_START = 15        # Sunday's late-afternoon games start from 3 PM Eastern...
+NIGHT_START = 19       # ...and Sunday night's game from 7 PM Eastern
 
 
 def kickoff_et(game):
@@ -1032,7 +1050,7 @@ def save_double(player_id, week, game_id):
             return " Your 2× was removed because you switched off the underdog."
         return ""
     if current and current["game_id"] in games and is_locked(games[current["game_id"]]):
-        return " Your 2× game has kicked off, so it's locked in for the week."
+        return " Your 2× game has locked, so it stays put for the week."
     if not game_id:
         if current:
             db().execute("DELETE FROM doubles WHERE player_id=? AND season=? AND week=?",
@@ -1044,7 +1062,7 @@ def save_double(player_id, week, game_id):
     if gm is None:
         return ""
     if is_locked(gm):
-        return " That game has kicked off, so it can't be your 2×."
+        return " That game has locked, so it can't be your 2×."
     dog = underdog(gm)
     if dog is None:
         return " That game has no underdog yet, so it can't be your 2×."
@@ -1087,7 +1105,7 @@ def picks(week):
             saved += 1
         msg = f"Saved {saved} pick{'s' if saved != 1 else ''}."
         if blocked:
-            msg += f" {blocked} game{'s' if blocked != 1 else ''} had already kicked off."
+            msg += f" {blocked} game{'s' if blocked != 1 else ''} had already locked."
         if "double" in request.form:
             msg += save_double(me["id"], week, request.form.get("double", ""))
 
@@ -1095,7 +1113,7 @@ def picks(week):
         mnf = monday_game(week_games(week))
         if guess and mnf:
             if is_locked(mnf):
-                msg += " Monday night has kicked off, so the tiebreaker is locked."
+                msg += " The tiebreaker has locked."
             elif guess.isdigit() and 0 <= int(guess) <= 200:
                 db().execute("""INSERT INTO tiebreakers (player_id, season, week, guess)
                                 VALUES (?,?,?,?) ON CONFLICT (player_id, season, week)
@@ -1121,7 +1139,9 @@ def picks(week):
             record[0 if mine[gm["id"]] == gm["winner"] else 1] += 1
     dbl = get_double(me["id"], week)
     upcoming = [gm["kickoff"] for gm in games if not is_locked(gm)]
-    return render_template("picks.html", week=week, games=games, mine=mine,
+    lock = sunday_lock(week)
+    return render_template("picks.html", sunday_lock_at=lock.isoformat() if lock and lock > now_utc() else None,
+                           week=week, games=games, mine=mine,
                            locked={gm["id"]: is_locked(gm) for gm in games},
                            record=record, online=online,
                            points=week_points(week).get(me["id"], 0),
