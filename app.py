@@ -799,6 +799,29 @@ def monday_game(games):
     return max(games, key=lambda gm: (gm["kickoff"], gm["id"])) if games else None
 
 
+def started(game):
+    """True once a game has kicked off (or ESPN says it has started)."""
+    return game["state"] != "pre" or parse_time(game["kickoff"]) <= now_utc()
+
+
+def tiebreak_locked(games, player=None):
+    """The tiebreaker stays open until Sunday night's game ends, even after the
+    Sunday afternoon cutoff locks the Sunday and Monday night picks. If the week has
+    no Sunday night game, or the tiebreaker game is the Sunday night game, it locks
+    at that game's kickoff instead."""
+    mnf = monday_game(games)
+    if not mnf:
+        return True
+    if player and player["is_admin"] and mnf["week"] == COMMISH_OPEN_WEEK:
+        return False
+    if started(mnf):
+        return True
+    snf = [gm for gm in primetime_games(games).get("sunday", []) if gm["id"] != mnf["id"]]
+    if not snf:
+        return False
+    return all(gm["state"] == "post" for gm in snf)
+
+
 def tiebreak_guesses(week):
     return {r["player_id"]: r["guess"] for r in db().execute(
         "SELECT player_id, guess FROM tiebreakers WHERE season=? AND week=?",
@@ -904,7 +927,7 @@ def home():
             missing=sum(1 for gm in open_games if gm["id"] not in mine),
             double=get_double(me["id"], week),
             dogs_left=any(underdog(gm) for gm in open_games),
-            mnf=mnf, mnf_open=bool(mnf and not is_locked(mnf)),
+            mnf=mnf, mnf_open=bool(mnf and not tiebreak_locked(games, me)),
             my_guess=tiebreak_guesses(week).get(me["id"]),
             my_points=week_points(week).get(me["id"], 0),
             my_row=my_row, my_rank=rank,
@@ -1128,16 +1151,21 @@ def picks(week):
         guess = request.form.get("tiebreak", "").strip()
         mnf = monday_game(week_games(week))
         if guess and mnf:
-            if is_locked(mnf):
+            if tiebreak_locked(week_games(week), me):
                 msg += " The tiebreaker has locked."
-            elif guess.isdigit() and 0 <= int(guess) <= 200:
+            elif not (guess.isdigit() and 0 <= int(guess) <= 200):
+                msg += " Tiebreaker must be a number from 0 to 200."
+            elif db().execute("""SELECT 1 FROM tiebreakers WHERE season=? AND week=?
+                                 AND guess=? AND player_id!=?""",
+                              (SEASON, week, int(guess), me["id"])).fetchone():
+                # No two players can have the same tiebreaker number in a week.
+                msg += f" {int(guess)} has already been picked for the tiebreaker. Pick a different number."
+            else:
                 db().execute("""INSERT INTO tiebreakers (player_id, season, week, guess)
                                 VALUES (?,?,?,?) ON CONFLICT (player_id, season, week)
                                 DO UPDATE SET guess = excluded.guess""",
                              (me["id"], SEASON, week, int(guess)))
                 msg += f" Tiebreaker: {int(guess)} total points."
-            else:
-                msg += " Tiebreaker must be a number from 0 to 200."
         db().commit()
         flash(msg)
         return redirect(url_for("picks", week=week))
@@ -1156,6 +1184,9 @@ def picks(week):
     dbl = get_double(me["id"], week)
     upcoming = [gm["kickoff"] for gm in games if not locked_for(gm, None)]
     lock = sunday_lock(week)
+    tb_game = monday_game(games)
+    tb_until_snf = bool(tb_game and any(gm["id"] != tb_game["id"]
+                                        for gm in primetime_games(games).get("sunday", [])))
     commish_open = bool(me["is_admin"] and week == COMMISH_OPEN_WEEK)
     return render_template("picks.html", sunday_lock_at=lock.isoformat() if lock and lock > now_utc() and not commish_open else None,
                            commish_open=commish_open,
@@ -1166,6 +1197,10 @@ def picks(week):
                            picked=sum(1 for gm in games if gm["id"] in mine),
                            mnf=monday_game(games),
                            my_guess=tiebreak_guesses(week).get(me["id"]),
+                           tb_locked=tiebreak_locked(games, me),
+                           tb_until_snf=tb_until_snf,
+                           tb_open_after_cutoff=bool(lock and lock > now_utc() and tb_until_snf
+                                                     and not tiebreak_locked(games)),
                            double=dbl,
                            double_locked=bool(dbl and any(
                                gm["id"] == dbl["game_id"] and is_locked(gm) for gm in games)),
@@ -1229,7 +1264,7 @@ def everyone(week):
                            grid=grid, totals=totals, doubles=doubles,
                            locked={gm["id"]: is_locked(gm) for gm in games},
                            me_id=current_player()["id"],
-                           mnf=mnf, mnf_locked=bool(mnf and is_locked(mnf)),
+                           mnf=mnf, mnf_locked=bool(mnf and tiebreak_locked(games)),
                            mnf_total=mnf_total, guesses=tiebreak_guesses(week),
                            winners=week_winners(week))
 

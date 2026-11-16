@@ -14,7 +14,7 @@
 </section>
 
 {% if not online %}<div class="flash warn">Couldn't reach the scores feed just now. Showing the last saved scores and lines.</div>{% endif %}
-{% if sunday_lock_at %}<p class="sub">All remaining picks, including Sunday night, Monday night and the tiebreaker, lock at <b data-utc="{{ sunday_lock_at }}">{{ sunday_lock_at }}</b>.</p>{% endif %}
+{% if sunday_lock_at %}<p class="sub">All remaining picks, including Sunday night and Monday night, lock at <b data-utc="{{ sunday_lock_at }}">{{ sunday_lock_at }}</b>.{% if tb_open_after_cutoff %} You can change your tiebreaker until Sunday night's game ends.{% endif %}</p>{% endif %}
 {% if not games %}<p class="empty">No games are loaded for this week yet. Check back once the schedule is out.</p>{% endif %}
 {% if commish_open %}<div class="flash">Commissioner override: you can make and change any of your week {{ week }} picks, your 2× and the tiebreaker, even after games lock.</div>{% endif %}
 
@@ -89,12 +89,13 @@
   </div>
 
   {% if mnf %}
-  {% set mnf_lock = locked[mnf.id] %}
+  {% set mnf_lock = tb_locked %}
   <div class="tiebreak {{ 'locked' if mnf_lock }}">
     <div>
       <h2>Monday night tiebreaker</h2>
       <p class="sub">Guess the total points in <b>{{ mnf.away }} at {{ mnf.home }}</b>.
-        If you tie for the most points this week, the closest guess wins.</p>
+        If you tie for the most points this week, the closest guess wins. No two players can pick the same number.
+        {% if not mnf_lock and tb_until_snf %}You can change it until Sunday night's game ends.{% endif %}</p>
     </div>
     <label class="tb-input">
       <input type="number" name="tiebreak" min="0" max="200" inputmode="numeric"
